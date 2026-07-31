@@ -1,0 +1,11 @@
+# rightcol — 确定性数据层依赖（全部免费 / 开源，零 API 密钥）
+#
+# 刻意只有两个依赖。设计原则：
+#   · 数据全部来自 SEC EDGAR 官方 XBRL —— 只需要 HTTP，不需要任何数据科学栈。
+#   · **股价不自动拉取**（`bin/value.py` 手动输入），所以不依赖 yfinance ——
+#     这既保证零密钥，也提醒你「价格是你选的输入」，不是系统流出来的客观事实。
+#   · LLM 精读层跑在 Claude Code 里（走订阅，见 .claude/skills/），
+#     因此不依赖 anthropic SDK —— 本项目运行时零 API 成本。
+
+requests>=2.31      # SEC EDGAR XBRL API（官方，免费，仅需 User-Agent）
+PyYAML>=6.0         # 解析 sectors/groups.yml 的同业分组定义

@@ -1,0 +1,452 @@
+"""SEC EDGAR XBRL 客户端 —— rightcol 的确定性数据地基。
+
+这一层只做一件事：**把 SEC 官方数据取出来、对齐口径、去掉重述噪音**。
+它不做任何判断，不算任何"好坏"，也绝不调用 LLM。判断在 FRAMEWORK.md 里，
+由你（和 .claude/skills/ 里的精读层）来做。
+
+为什么直连 EDGAR 而不用第三方财经 API：
+  - 官方、免费、无密钥、无调用额度，且是**申报原始口径**——没有中间商粉饰。
+  - 第三方 API 常年偷偷做口径调整（把 SBC 加回、把一次性项目平滑掉），
+    而这个项目的整个方法论建立在"分辨管理层调整过什么"之上。用调整过的
+    二手数据看财报质量，等于用嫌疑人写的笔录破案。
+
+已验证的三个官方端点（2026-07 实测通过）：
+  ticker→CIK   https://www.sec.gov/files/company_tickers.json
+  全部事实      https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json
+  单个概念      https://data.sec.gov/api/xbrl/companyconcept/CIK##########/us-gaap/<Tag>.json
+  申报列表      https://data.sec.gov/submissions/CIK##########.json
+
+SEC 的两条硬性要求（违反会被封 IP）：
+  1. User-Agent 必须带真实联系方式，形如 "Name email@example.com"。
+  2. 速率上限 10 次/秒。本模块统一节流到 ~7 次/秒留余量。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import requests
+
+# --------------------------------------------------------------------------
+# 配置
+# --------------------------------------------------------------------------
+
+# SEC 要求 UA 带可联系到你的信息。改成你自己的邮箱，或设环境变量 RIGHTCOL_UA。
+DEFAULT_UA = os.environ.get("RIGHTCOL_UA", "rightcol/0.1 (chengh233x@gmail.com)")
+
+CACHE_DIR = Path(os.environ.get("RIGHTCOL_CACHE", Path(__file__).resolve().parent.parent / "data" / "cache"))
+TICKER_MAP_PATH = Path(__file__).resolve().parent.parent / "data" / "company_tickers.json"
+
+# companyfacts 单个大公司可达数 MB，且一天最多更新一次 —— 默认缓存 24h。
+CACHE_TTL_SEC = int(os.environ.get("RIGHTCOL_CACHE_TTL", 24 * 3600))
+
+_SEC_MIN_INTERVAL = 1.0 / 7.0  # ~7 req/s，官方上限 10/s
+_rate_lock = threading.Lock()
+_last_call = [0.0]
+
+
+def _throttle() -> None:
+    with _rate_lock:
+        wait = _last_call[0] + _SEC_MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_call[0] = time.monotonic()
+
+
+def _get_json(url: str, cache_key: str | None = None, ttl: int = CACHE_TTL_SEC) -> dict:
+    """带节流、重试与本地缓存的 GET。缓存命中不消耗 SEC 配额。"""
+    path = CACHE_DIR / f"{cache_key}.json" if cache_key else None
+    if path and path.exists() and (time.time() - path.stat().st_mtime) < ttl:
+        try:
+            return json.loads(path.read_text())
+        except json.JSONDecodeError:
+            path.unlink(missing_ok=True)  # 缓存损坏就重取
+
+    last_err: Exception | None = None
+    for attempt in range(4):
+        _throttle()
+        try:
+            r = requests.get(url, headers={"User-Agent": DEFAULT_UA, "Accept-Encoding": "gzip, deflate"}, timeout=30)
+            if r.status_code == 404:
+                raise FileNotFoundError(f"EDGAR 404: {url}")
+            r.raise_for_status()
+            data = r.json()
+            if path:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(data))
+            return data
+        except FileNotFoundError:
+            raise
+        except Exception as e:  # 网络抖动 / 429 / 5xx
+            last_err = e
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"EDGAR 请求失败（已重试 4 次）: {url}") from last_err
+
+
+# --------------------------------------------------------------------------
+# ticker -> CIK
+# --------------------------------------------------------------------------
+
+
+def _ticker_map() -> dict:
+    if not TICKER_MAP_PATH.exists() or (time.time() - TICKER_MAP_PATH.stat().st_mtime) > 30 * 86400:
+        data = _get_json("https://www.sec.gov/files/company_tickers.json")
+        TICKER_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TICKER_MAP_PATH.write_text(json.dumps(data))
+        return data
+    return json.loads(TICKER_MAP_PATH.read_text())
+
+
+def cik_candidates(ticker: str) -> list[str]:
+    """一个 ticker 可能对应**多个** CIK —— 这不是理论问题，是实测踩到的坑。
+
+    实例（2026-07 实测）：`XOM` 同时映射到
+        CIK 0002115436  ExxonMobil Holdings Corp  —— 重组新设的控股主体，
+                                                    XBRL 历史**完全为空**
+        CIK 0000034088  EXXON MOBIL CORP          —— 真正有数据的申报主体
+    如果闭着眼睛取第一个匹配，XOM 的分析会安静地返回空结果。同类情形还会出现在
+    公司重组、换壳上市、双重股权分设主体的场合。
+
+    所以这里返回**全部**候选，由 `company_facts` 挑出真正有 us-gaap 事实的那个。
+    """
+    ticker = ticker.strip().upper()
+    hits = [str(r["cik_str"]).zfill(10) for r in _ticker_map().values() if r["ticker"].upper() == ticker]
+    if not hits:
+        raise KeyError(
+            f"EDGAR 里找不到 ticker {ticker!r}。可能原因：ETF / 指数无 XBRL 申报、"
+            f"已退市或被并购、或该公司以 20-F 申报（非美国发行人，见 README「数据的诚实声明」）。"
+        )
+    return list(dict.fromkeys(hits))
+
+
+def _has_gaap(cik: str) -> bool:
+    try:
+        facts = _get_json(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", cache_key=f"facts_{cik}")
+        return bool(facts.get("facts", {}).get("us-gaap"))
+    except Exception:
+        return False
+
+
+def _search_cik_by_name(name: str) -> list[str]:
+    """按公司名在 EDGAR 检索有 10-K 历史的主体，返回 CIK 列表。"""
+    import re
+    import urllib.parse
+
+    q = urllib.parse.quote_plus(name)
+    url = (
+        f"https://www.sec.gov/cgi-bin/browse-edgar?company={q}&CIK=&type=10-K"
+        f"&dateb=&owner=include&count=20&action=getcompany&output=atom"
+    )
+    _throttle()
+    try:
+        r = requests.get(url, headers={"User-Agent": DEFAULT_UA}, timeout=30)
+        r.raise_for_status()
+        return list(dict.fromkeys(re.findall(r"<cik>(\d{10})</cik>", r.text)))
+    except Exception:
+        return []
+
+
+def cik_for(ticker: str) -> str:
+    """解析成单个 CIK，并在**主体重组**后自动接回真正有财务历史的前身主体。
+
+    为什么需要这一层（2026-07 实测的真实事故）：
+        ExxonMobil 于 2026 年 7 月完成控股公司重组（申报 `8-K12B`——继承发行人
+        专用表格）。SEC 的 ticker 映射表**立刻**把 `XOM` 指向新设的
+        `ExxonMobil Holdings Corp` (CIK 2115436)，而该主体的 XBRL 事实**完全为空**；
+        全部财务历史仍留在 `EXXON MOBIL CORP` (CIK 34088) 上。
+
+    这类事件（控股重组、换壳、重新注册地）每年都会发生几起。若不处理，你会
+    对着一家 30 年历史的巨头得到"查无数据"，或更糟——得到一个只有几个月历史的
+    序列，还以为那就是全部。
+
+    解析顺序：手工覆盖 → ticker 映射（多候选取有数据者）→ 按公司名回溯前身。
+    """
+    ticker = ticker.strip().upper()
+
+    # 1) 手工覆盖永远优先 —— 自动推断出错时你有确定的逃生舱
+    ov_path = Path(__file__).resolve().parent.parent / "data" / "cik_overrides.json"
+    if ov_path.exists():
+        ov = json.loads(ov_path.read_text())
+        if ticker in ov:
+            return str(ov[ticker]).zfill(10)
+
+    cands = cik_candidates(ticker)
+    for cik in cands:
+        if _has_gaap(cik):
+            return cik
+
+    # 2) 映射到的主体没有财务事实 —— 按名字回溯前身
+    stale = cands[0]
+    try:
+        sub = _get_json(f"https://data.sec.gov/submissions/CIK{stale}.json", cache_key=f"sub_{stale}", ttl=6 * 3600)
+        raw = sub.get("name", "")
+    except Exception:
+        raw = ""
+    # 去掉重组后加上的壳字样，用主干名去搜前身。
+    # 要试多个变体：重组后的新名常把词连写（ExxonMobil），而前身在 EDGAR 里
+    # 是分写的（EXXON MOBIL CORP），直接搜连写版**搜不到**（实测）。
+    import re as _re
+
+    stem = _re.sub(r"\b(holdings?|holdco|group|inc|corp|corporation|co|plc|ltd|new)\b\.?", " ", raw, flags=_re.I)
+    stem = " ".join(stem.split())
+    camel = " ".join(_re.findall(r"[A-Z][a-z]+|[A-Z]{2,}(?![a-z])|\d+", stem)) or stem
+    variants = [v for v in dict.fromkeys([stem, camel, stem.split(" ")[0] if stem else ""]) if len(v) >= 3]
+
+    # ⚠️ 按名搜索必须校验，否则会静默返回**完全无关的公司**。
+    # 只接受名称与目标主干名有实质重叠的候选（共享一个 ≥4 字符的词），
+    # 且该主体必须真的有 us-gaap 事实。宁可失败并抛出可读错误，
+    # 也不能把 A 公司的财报当成 B 公司交给用户。
+    stem_words = {w.lower() for w in _re.findall(r"[A-Za-z]{4,}", camel or stem)}
+    for v in variants:
+        for cik in _search_cik_by_name(v):
+            if cik == stale or not _has_gaap(cik):
+                continue
+            try:
+                cand_name = _get_json(
+                    f"https://data.sec.gov/submissions/CIK{cik}.json", cache_key=f"sub_{cik}", ttl=6 * 3600
+                ).get("name", "")
+            except Exception:
+                continue
+            cand_words = {w.lower() for w in _re.findall(r"[A-Za-z]{4,}", cand_name)}
+            if stem_words & cand_words:
+                return cik
+
+    return stale  # 找不到就交回原 CIK，由 company_facts 抛出可读的错误
+
+
+def company_name(ticker: str) -> str:
+    """返回**实际取数主体**的名称，不是 ticker 映射表里的名字。
+
+    这两者在主体重组后会不一致：`XOM` 在映射表里叫 "ExxonMobil Holdings Corp"
+    （XBRL 完全为空的新壳），而数据实际来自 "Exxon Mobil Corporation"。
+    报告标题必须显示后者 —— 否则你就失去了「一眼看出取错了主体」这道人工校验。
+    """
+    try:
+        cik = cik_for(ticker)
+        facts = _get_json(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", cache_key=f"facts_{cik}")
+        if facts.get("entityName"):
+            return facts["entityName"].strip()
+    except Exception:
+        pass
+    data = json.loads(TICKER_MAP_PATH.read_text()) if TICKER_MAP_PATH.exists() else {}
+    for row in data.values():
+        if row["ticker"].upper() == ticker.strip().upper():
+            return row["title"]
+    return ticker.upper()
+
+
+def entity_info(ticker: str) -> dict:
+    """报告头部用：同时给出实体名与实际使用的 CIK，方便人工核对取数主体。"""
+    cik = cik_for(ticker)
+    return {"cik": cik, "name": company_name(ticker), "ticker": ticker.upper()}
+
+
+# --------------------------------------------------------------------------
+# 事实抽取
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Fact:
+    """一个已对齐口径的财务事实。
+
+    tag    实际命中的 us-gaap 标签（回退链里到底用了哪个——必须留痕，否则
+           跨公司对比时你不知道自己在比什么）
+    start  期间起（流量项；存量项为 None）
+    end    期间止 / 时点
+    val    数值（原始单位，通常是 USD）
+    fy/fp  申报归属财年与期间
+    form   10-K / 10-Q / 8-K ...
+    filed  申报日期——用于在重述中取最新版本
+    """
+
+    tag: str
+    start: str | None
+    end: str
+    val: float
+    fy: int | None
+    fp: str | None
+    form: str
+    filed: str
+    unit: str
+
+    @property
+    def days(self) -> int | None:
+        if not self.start:
+            return None
+        from datetime import date
+
+        a = date.fromisoformat(self.start)
+        b = date.fromisoformat(self.end)
+        return (b - a).days
+
+
+def company_facts(ticker: str) -> dict:
+    """拉取该公司**全部** XBRL 事实（一次请求，之后本地缓存 24h）。
+
+    拿不到 us-gaap 事实时**直接抛错**，绝不返回空壳让下游把"没有数据"算成
+    "指标为 0"。数据中断必须长得像数据中断。
+    """
+    cik = cik_for(ticker)
+    facts = _get_json(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", cache_key=f"facts_{cik}")
+    if not facts.get("facts", {}).get("us-gaap"):
+        taxes = list(facts.get("facts", {}).keys())
+        raise ValueError(
+            f"{ticker} (CIK {cik}) 没有 us-gaap 事实，只有 {taxes}。"
+            f"常见原因：该主体是重组新设的控股壳（历史在前身 CIK 上）、"
+            f"以 IFRS 申报的外国发行人（用 ifrs-full 分类），或尚未有年报。"
+        )
+    return facts
+
+
+def _extract(facts: dict, tag: str, taxonomy: str = "us-gaap") -> list[Fact]:
+    node = facts.get("facts", {}).get(taxonomy, {}).get(tag)
+    if not node:
+        return []
+    out: list[Fact] = []
+    for unit, rows in node.get("units", {}).items():
+        for r in rows:
+            out.append(
+                Fact(
+                    tag=tag,
+                    start=r.get("start"),
+                    end=r["end"],
+                    val=float(r["val"]),
+                    fy=r.get("fy"),
+                    fp=r.get("fp"),
+                    form=r.get("form", ""),
+                    filed=r.get("filed", ""),
+                    unit=unit,
+                )
+            )
+    return out
+
+
+def annual_series(
+    facts: dict,
+    tags: list[str],
+    *,
+    kind: str = "flow",
+    taxonomy: str = "us-gaap",
+    strict_priority: bool = False,
+) -> dict[str, Fact]:
+    """按**回退优先级**在 tags 里逐个尝试，取出年度序列，key 为期末日期。
+
+    这个函数是整个数据层最关键、也最容易出错的地方，三个坑都在这里处理：
+
+    坑 1 —— 同一概念标签会变。
+        Apple 的营收 2018 年前用 `Revenues`，之后改用
+        `RevenueFromContractWithCustomerExcludingAssessedTax`（ASC 606 生效）。
+        所以必须给**回退链**而不是单个标签，并且回退是**逐年**做的：
+        某一年首选标签缺失就用次选，而不是整条序列二选一。
+
+    坑 2 —— 重述（restatement）。
+        同一个财年会被申报多次（当年 10-K 一次，之后作为比较期再出现若干次，
+        口径可能已被重述）。这里按 (start, end) 分组，取 `filed` 最新的那条——
+        即**公司自己最新承认的口径**。想看"当年原始申报值"是另一个需求，
+        用 `original=True`（未实现，路线图）。
+
+    坑 3 —— 期间对齐。
+        流量项（利润表 / 现金流量表）必须筛出 ~365 天的区间，否则会把季度
+        数据混进年度序列；存量项（资产负债表）是时点值，没有 start。
+        财年不等于日历年（Apple 财年 9 月底结束），因此 key 用**期末日期**而
+        非年份——跨公司比较时你必须自己意识到财年错位。
+    """
+    # 第一步：按标签分别收集合格事实，并在标签内部做重述去重（取 filed 最新）
+    by_tag: dict[str, dict[tuple[str | None, str], Fact]] = {}
+    for tag in tags:
+        bucket: dict[tuple[str | None, str], Fact] = {}
+        for f in _extract(facts, tag, taxonomy):
+            if f.form not in ("10-K", "10-K/A", "20-F", "20-F/A"):
+                continue
+            if kind == "flow":
+                if f.start is None or not (340 <= (f.days or 0) <= 400):
+                    continue
+            else:  # stock / instant
+                if f.start is not None:
+                    continue
+            key = (f.start, f.end)
+            prev = bucket.get(key)
+            if prev is None or f.filed > prev.filed:
+                bucket[key] = f
+        if bucket:
+            by_tag[tag] = bucket
+
+    if not by_tag:
+        return {}
+
+    # 第二步：选**主标签** = 覆盖期间数最多的那个，而不是回退链里排最前的那个。
+    #
+    # 为什么不能简单按回退链优先级逐年取（这是修掉的一个真实事故）：
+    # 万事达同时申报 `Revenues`（净额口径，2007–2025 连续 18 年）与
+    # `RevenueFromContractWithCustomerExcludingAssessedTax`（**毛额**口径，
+    # 仅 2018–2021 四年，2018 年为 21.83B vs 净额 14.95B）。若按回退链优先
+    # 取后者，序列会在 2018 年凭空跳 +75%、2022 年再跌 −25% —— 两个都是
+    # 口径切换造成的**假增速**，而报告会把它当成真实经营变化。
+    #
+    # 「覆盖最广者为主」这条规则同时对苹果成立：ASC 606 后的新标签覆盖 8 年、
+    # 旧的 `Revenues` 只剩 3 年，主标签正确地落在新标签上，早年再用旧标签补。
+    #
+    # ⚠️ 但这条规则**只对「同义标签」成立**。当回退链里含有口径更窄的标签
+    # （税务附注的境内分部、含库存股的已发行股数、不含摊销的狭义折旧），
+    # 按覆盖度选主会让分项冒充总额 —— 实测这会让 41 家里 23 家的有效税率翻倍。
+    # 这类概念用 strict_priority=True，严格按链序取首个可用者为主标签。
+    # 名单见 concepts.STRICT_PRIORITY。
+    if strict_priority:
+        primary = next(t for t in tags if t in by_tag)
+    else:
+        primary = max(by_tag, key=lambda t: (len(by_tag[t]), -tags.index(t)))
+    picked: dict[tuple[str | None, str], Fact] = dict(by_tag[primary])
+
+    # 第三步：主标签没覆盖到的期间，才按回退链顺序补
+    for tag in tags:
+        if tag == primary or tag not in by_tag:
+            continue
+        for key, f in by_tag[tag].items():
+            picked.setdefault(key, f)
+
+    return {f.end: f for f in sorted(picked.values(), key=lambda x: x.end)}
+
+
+def latest_n(series: dict[str, Fact], n: int) -> dict[str, Fact]:
+    keys = sorted(series)[-n:]
+    return {k: series[k] for k in keys}
+
+
+# --------------------------------------------------------------------------
+# 申报原文 —— LLM 精读层的输入
+# --------------------------------------------------------------------------
+
+
+def filings(ticker: str, form: str = "10-K", limit: int = 5) -> list[dict]:
+    """列出最近的申报，返回可直接打开的主文档 URL。
+
+    这是**给 LLM 精读层用的**：数字层回答"是多少"，原文层回答"管理层怎么说、
+    以及和去年比措辞变了什么"。风险因素章节的逐年 diff 常常比任何财务指标都
+    先反映出问题。
+    """
+    cik = cik_for(ticker)
+    sub = _get_json(f"https://data.sec.gov/submissions/CIK{cik}.json", cache_key=f"sub_{cik}", ttl=6 * 3600)
+    recent = sub["filings"]["recent"]
+    out = []
+    for i, ft in enumerate(recent["form"]):
+        if ft != form:
+            continue
+        accn = recent["accessionNumber"][i].replace("-", "")
+        out.append(
+            {
+                "form": ft,
+                "filed": recent["filingDate"][i],
+                "period": recent.get("reportDate", [None] * len(recent["form"]))[i],
+                "accession": recent["accessionNumber"][i],
+                "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accn}/{recent['primaryDocument'][i]}",
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out

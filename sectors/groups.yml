@@ -1,0 +1,42 @@
+# 行业分组 —— 你的同业参照系定义
+#
+# ⚠️ 这个文件比它看起来重要得多：**选错同行，整张对标表都是错的参照系**。
+# 分组的标准不是 GICS 行业分类，而是「**赚钱的方式是否可比**」：
+#   · 苹果和微软同属"科技"，但一个卖硬件（毛利 47%）一个卖软件（毛利 70%），
+#     直接比毛利率毫无意义。
+#   · Costco 和 Walmart 可比；Costco 和亚马逊不可比（会员制零售 vs 平台+云）。
+# 宁可分得细、样本小，也不要为了凑样本把商业模式不同的公司塞进来。
+#
+# 用法：python bin/sector.py --group <名字>
+
+mega_software:
+  desc: 大型软件/平台 —— 高毛利、轻资产、SBC 占比高
+  tickers: [MSFT, GOOGL, META, ORCL, CRM, ADBE]
+
+semis_fabless:
+  desc: 无晶圆半导体设计 —— 轻资产、周期性、研发密集
+  tickers: [NVDA, AMD, AVGO, QCOM, MRVL]
+
+semis_equipment:
+  desc: 半导体设备 —— 强周期、订单驱动、资本开支敏感
+  tickers: [AMAT, LRCX, KLAC, ASML]
+
+warehouse_retail:
+  desc: 仓储/折扣零售 —— 低毛利高周转，会员费或规模是真正的利润来源
+  tickers: [COST, WMT, TGT, BJ, DG]
+
+consumer_staples:
+  desc: 必需消费 —— 品牌定价权、稳定现金流、低增长
+  tickers: [KO, PEP, PG, CL, MDLZ]
+
+payments:
+  desc: 支付网络 —— 极高 ROIC 的收费站型生意
+  tickers: [V, MA, AXP, PYPL]
+
+med_devices:
+  desc: 医疗器械 —— 转换成本高、监管壁垒、稳定毛利
+  tickers: [ABT, MDT, SYK, BSX, ISRG]
+
+energy_majors:
+  desc: 综合能源 —— 强周期，PE 最低时最危险（见 FRAMEWORK.md §10）
+  tickers: [XOM, CVX, COP, OXY]

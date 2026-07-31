@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+.env
+
+# EDGAR 原始响应缓存 —— 可随时重新拉取，不入库（companyfacts 单个公司可达数 MB）
+data/cache/
+
+# 你的私人持仓/成本，不该进公开仓库
+positions.local.*
+
+# ticker→CIK 映射表：798KB 的纯缓存，首次运行会自动拉取、每 30 天自动刷新
+data/company_tickers.json
