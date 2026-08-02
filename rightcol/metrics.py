@@ -150,6 +150,15 @@ def total_debt(p: Period, include_leases: bool = True) -> float | None:
     含租赁的理由：ASC 842 之后经营租赁上表，经济实质就是借钱占用资产。
     对零售 / 餐饮 / 航空这类"租来的重资产"生意，不算租赁会系统性低估杠杆。
     """
+    # 最高优先：长短期合计的总额标签。它**已含**当期部分，所以一旦命中就
+    # 独占使用，绝不再与 DebtCurrent 等分项相加（否则又是一次重复计算）。
+    # 实测甲骨文只申报这一个标签，不覆盖它会漏掉约 1220 亿美元长期负债。
+    if p.debt_combined_total is not None:
+        total = p.debt_combined_total
+        if include_leases:
+            total = _add(total, p.lease_liab_long, p.lease_liab_short)
+        return total
+
     # 非流动段：优先直接取；否则用 总长期负债 − 当期部分 倒推
     noncurrent = p.debt_lt_noncurrent
     if noncurrent is None and p.debt_lt_total is not None:

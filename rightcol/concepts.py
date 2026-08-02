@@ -209,6 +209,13 @@ CONCEPTS: dict[str, tuple[str, list[str]]] = {
     # 正确口径：TotalDebt = LongTermDebtNoncurrent + DebtCurrent
     #          （DebtCurrent 缺失时 = 长期负债当期部分 + 短期借款 + 商业票据）
     # 组装逻辑见 metrics.total_debt()。
+    # 有些公司只申报一个**长短期合计**的总额标签，不做流动性拆分。
+    # 实测甲骨文 FY2026 只有 `DebtLongtermAndShorttermCombinedAmount` = 129.54B，
+    # 而 LongTermDebtNoncurrent / LongTermDebt 全部缺失 —— 若不覆盖这个标签，
+    # 有息负债只会算出 DebtCurrent 的 7.20B，**漏掉约 1220 亿美元**，
+    # 净负债从真实的约 1280 亿变成 55 亿，整个财务健康判断全反。
+    # ⚠️ 它已含当期部分，因此在 metrics.total_debt() 里**独占**、不与分项相加。
+    "debt_combined_total": (STOCK, ["DebtLongtermAndShorttermCombinedAmount"]),
     "debt_lt_noncurrent": (STOCK, ["LongTermDebtNoncurrent"]),
     "debt_lt_total": (STOCK, ["LongTermDebt"]),
     "debt_lt_current": (STOCK, ["LongTermDebtCurrent"]),
