@@ -122,31 +122,100 @@ def implied_growth(target_value: float, fcf0: float, a: DCFAssumptions) -> float
 # --------------------------------------------------------------------------
 
 
-def justified_pe(growth: float, roic: float, discount_rate: float) -> float | None:
-    """合理市盈率（对 NOPAT 而言）= (1 − g/ROIC) / (r − g)
+def _value_driver(growth: float, ret: float, disc: float) -> float | None:
+    """价值驱动公式的公共内核 = (1 − g/回报率) / (折现率 − g)。
 
-    这是 McKinsey《Valuation》的价值驱动公式，把 PE 拆回它的三个源头：
-    增长 g、资本回报 ROIC、折现率 r。
+    三个合理倍数（EV/NOPAT、P/E、P/B）用的是同一个骨架，只是把
+    「回报率 / 折现率」这一对换成对应口径的变量。
+    """
+    if ret is None or ret <= 0 or disc <= growth:
+        return None
+    reinvestment = growth / ret
+    if reinvestment >= 1:
+        return None  # 增长快过资本回报能支撑的极限，必须靠外部融资
+    return (1 - reinvestment) / (disc - growth)
 
-    它说明的第一件事：**增长要花钱买。** 分子里的 (1 − g/ROIC) 就是再投资率——
-    想长得快，就得把利润留下来再投；ROIC 越低，同样的增长要留存的利润越多，
-    能分给股东的越少。
 
-    第二件事，也是最反直觉的一件：**同样的增长率，ROIC 不同，配得上的 PE 天差地别。**
-      g=8%, ROIC=40%, r=9%  →  PE ≈ 80   （再投资率仅 20%，增长几乎白送）
-      g=8%, ROIC=10%, r=9%  →  PE ≈ 20   （再投资率 80%，增长基本自己吃光）
-    所以"PE 40 太贵了"这句话本身没有信息量 —— 除非你同时说出它的 ROIC 和增速。
+def justified_ev_nopat(growth: float, roic: float, wacc: float) -> float | None:
+    """合理 **EV / NOPAT** 倍数 = (1 − g/ROIC) / (WACC − g) —— **全资本口径**
 
-    第三件事：当 ROIC = r 时，公式退化成 1/r，**增长完全不创造价值**。
-    ROIC < r 时，g 越大 PE 越低 —— 增长在毁灭价值。这就是 ROIC×增长
+    这是 McKinsey《Valuation》的价值驱动公式，把估值倍数拆回三个源头：
+    增长 g、资本回报 ROIC、资本成本 WACC。
+
+    ⚠️ **口径必须配对**：NOPAT 是扣息**之前**的全公司利润（还没给债主付息），
+    所以分子必须是**企业价值 EV**（市值 + 有息负债 − 现金），不是市值。
+    把它叫成"合理 PE"是通俗但错误的说法 —— 对有杠杆的公司会算错。
+    股东口径请用下面的 `justified_pe()`。
+
+    它说明的第一件事：**增长要花钱买。** 分子里的 (1 − g/ROIC) 是留给资本
+    提供者的比例，g/ROIC 则是**再投资率** —— 想长得快就得把利润留下来再投；
+    ROIC 越低，同样的增长要留存的利润越多。
+
+    第二件事，也是最反直觉的：**同样的增长率，ROIC 不同，配得上的倍数天差地别。**
+      g=8%, ROIC=40%, WACC=9%  →  80×   （再投资率仅 20%，增长几乎白送）
+      g=8%, ROIC=10%, WACC=9%  →  20×   （再投资率 80%，增长基本自己吃光）
+    所以"40 倍太贵了"这句话本身没有信息量 —— 除非你同时说出 ROIC 和增速。
+
+    第三件事：当 ROIC = WACC 时，公式退化成 1/WACC，**增长完全不创造价值**。
+    ROIC < WACC 时，g 越大倍数越低 —— 增长在毁灭价值。这就是 ROIC×增长
     四象限里"低 ROIC 高增长 = 价值毁灭机"那一格的数学证明。
     """
-    if roic is None or roic <= 0 or discount_rate <= growth:
+    return _value_driver(growth, roic, wacc)
+
+
+def justified_pe(growth: float, roe: float, cost_of_equity: float) -> float | None:
+    """合理 **市盈率 P/E** = (1 − g/ROE) / (ke − g) —— **股东口径**
+
+    与 `justified_ev_nopat()` 是同一个公式的股东版：把全资本口径的
+    (ROIC, WACC) 换成股东口径的 (ROE, ke)，分子分母就都只关于股东了。
+
+      P   = 市值（股东出的钱值多少）
+      E   = 归母净利润（扣息扣税后，真正属于股东的利润）
+      ROE = Return on Equity，净资产收益率
+      ke  = cost of equity，股东要求的回报率（**不是** WACC —— 有债务时 ke > WACC）
+
+    ⚠️ 用这个版本时要记住 ROE 的缺陷：**它可以靠加杠杆做高**。
+    一家生意平平但杠杆 5 倍的公司也能有漂亮的 ROE 和"合理 P/E"，
+    而 ROIC 版本不会被这样骗到。所以两个都算，**看它们是否讲同一个故事**——
+    分歧越大，说明这家公司的回报越依赖杠杆。
+    """
+    return _value_driver(growth, roe, cost_of_equity)
+
+
+def justified_pb(growth: float, roe: float, cost_of_equity: float) -> float | None:
+    """合理 **市净率 P/B** = (ROE − g) / (ke − g) —— 股东口径
+
+    P/B = Price-to-Book，市值 ÷ 账面净资产。
+
+    它和 P/E 是同一枚硬币：`P/B = P/E × ROE`，两者数学上完全等价，
+    本模块的 `check_consistency()` 会验算这一点。
+
+    最有用的读法是那个**分界点**：**当 ROE = ke 时，合理 P/B 恰好等于 1。**
+      · ROE > ke → P/B 应当 > 1（公司在为股东创造价值，值得溢价）
+      · ROE < ke → P/B 应当 < 1（公司在毁灭价值，账面 1 块钱只值几毛）
+    这解释了为什么长期低 ROE 的行业（部分银行、重资产周期股）常年破净 ——
+    那**不一定是低估，可能是定价正确**。
+
+    ⚠️ 只对账面价值有经济意义的公司适用（金融、重资产）。对轻资产公司，
+    研发与品牌被费用化、不在账面上，P/B 会虚高到失去参考价值。
+    """
+    if roe is None or roe <= 0 or cost_of_equity <= growth:
         return None
-    reinvestment = growth / roic
-    if reinvestment >= 1:
-        return None  # 增长快过资本回报能支撑的极限，必须外部融资
-    return (1 - reinvestment) / (discount_rate - growth)
+    if growth >= roe:
+        # 增长快过净资产回报 → 公司无法靠自身留存供养增长，必须持续外部融资。
+        # 此时公式会给出一个**负数**（实测 ROE=6%、g=8% → −2.00），
+        # 与 justified_pe() 在同样参数下返回 None 不一致。统一返回 None。
+        return None
+    return (roe - growth) / (cost_of_equity - growth)
+
+
+def check_consistency(growth: float, roe: float, cost_of_equity: float, tol: float = 1e-9) -> bool:
+    """验算恒等式 `P/B == P/E × ROE`。两条公式必须给出同一个答案。"""
+    pe = justified_pe(growth, roe, cost_of_equity)
+    pb = justified_pb(growth, roe, cost_of_equity)
+    if pe is None or pb is None:
+        return False
+    return abs(pb - pe * roe) < tol * max(1.0, abs(pb))
 
 
 def earnings_yield_spread(fcf_yield: float | None, risk_free: float | None) -> float | None:
