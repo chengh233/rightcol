@@ -154,6 +154,10 @@ def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Peri
         if M.effective_tax_rate(p) is None and p.operating_income is not None:
             flag += "†"
             _note("tax_fallback", p.end)
+        nonop = M.nonoperating_share(p)
+        if nonop is not None and nonop > M.NONOP_DOMINANT_THRESHOLD:
+            flag += "💰"
+            _note("nonop", p.end)
         A(
             _row(
                 [
@@ -184,6 +188,10 @@ def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Peri
                                        "**任何跨越该年的 CAGR、趋势与平均值都无意义**。"
                                        "（实测 Nebius 2022 年 −99.7% 是剥离俄罗斯业务；"
                                        "CoreWeave 2024 年 +736% 则是真实增长——所以这只是提示，不是判定。）"),
+            "nonop": ("💰", "**净利润的三成以上不是经营赚来的** —— 非经营损益（多为股权投资的"
+                            "公允价值重估、处置收益）占税前利润超过 30%。ASU 2016-01 之后股权投资的"
+                            "**未实现**增值直接计入净利润，是非现金的。此时**净利率 / ROE / PE 全部失真**，"
+                            "请改看营业利润与自由现金流。"),
             "tax_fallback": ("†", "**有效税率异常**（亏损年或一次性税务事项），NOPAT 与 ROIC 使用了"
                                   "21% 法定税率**假设**，不是该年实际税率。"),
         }

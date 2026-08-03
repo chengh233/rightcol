@@ -586,6 +586,33 @@ def margins(p: Period) -> dict[str, float | None]:
     }
 
 
+NONOP_DOMINANT_THRESHOLD = 0.30
+"""非经营损益占税前利润超过此比例时，净利润已不能代表经营成果。"""
+
+
+def nonoperating_share(p: Period) -> float | None:
+    """非经营损益 / 税前利润 —— **净利润有多少不是经营赚来的**。
+
+    非经营损益 = 税前利润 − 营业利润，主要包含投资的公允价值变动、
+    处置收益、汇兑损益等。ASU 2016-01 之后，**股权投资的未实现增值直接
+    计入净利润**，于是持有大量非上市股权的公司，净利润会与经营脱节。
+
+    这不是罕见情况，实测两例：
+      · Alphabet 2026Q2：营业利润 408 亿（利润率 34%，正常），
+        但股权投资重估收益 **990 亿**，把净利润推到 1122 亿 ——
+        净利率 94%。TTM 净利 2442 亿里约 1360 亿是这类非现金收益，
+        而同期自由现金流只有 533 亿。
+      · Nebius FY2025：经营亏损 6.12 亿，靠 ClickHouse 重估收益 5.99 亿
+        把净利润做成 +0.83 亿 —— 报表"盈利"，经营实亏。
+
+    **看到这个比例高，净利润、净利率、ROE、PE 全部失去意义**，
+    必须改看营业利润与自由现金流。
+    """
+    if p.pretax_income is None or p.operating_income is None or p.pretax_income == 0:
+        return None
+    return (p.pretax_income - p.operating_income) / p.pretax_income
+
+
 def dilution(p: Period, prev: Period | None) -> float | None:
     """年度净稀释率 = 摊薄股数同比增幅。
 
