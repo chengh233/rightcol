@@ -120,6 +120,94 @@ def build_periods(facts: dict, years: int = 12) -> list[Period]:
 # --------------------------------------------------------------------------
 
 
+def build_quarters(facts: dict, n: int = 12) -> list[Period]:
+    """拍平成按季度排列的 Period 列表（最新在最后），并倒推补上每个 Q4。
+
+    **为什么周期股必须看季度**：年报最多有一年时滞。实测 Micron ——
+    最新年报止 2025-08-28，而 2026-08 的价格反映的是随后四个季度的爆发
+    （营收从 93 亿/季涨到 415 亿/季，毛利率从 37.7% 涨到 84.6%）。
+    只看年报会把它读成一家平庸公司，而市场在给它定 9000 亿市值。
+
+    存量项（资产负债表）用最近的季末时点值。
+    """
+    from .edgar import annual_series, derive_q4, quarterly_series
+
+    series: dict[str, dict] = {}
+    for name, (kind, tags) in C.CONCEPTS.items():
+        strict = name in C.STRICT_PRIORITY
+        q = quarterly_series(facts, tags, kind=kind, strict_priority=strict)
+        if kind == C.FLOW:
+            a = annual_series(facts, tags, kind=kind, strict_priority=strict)
+            q = derive_q4(q, a)
+        series[name] = q
+
+    # ⚠️ 季度轴**不能死盯 revenue**。银行没有可用的季度营收标签（实测摩根大通
+    # 的季度轴会停在 2014 年，因为主标签 `Revenues` 只有旧数据），此时轴必须
+    # 落到别的概念上。规则：在几个候选里取**最新一期最靠后**的那个。
+    axis_src, axis_end = None, ""
+    for cand in ("revenue", "net_income", "ocf"):
+        s = series.get(cand) or {}
+        if s and max(s) > axis_end:
+            axis_src, axis_end = cand, max(s)
+    axis = sorted(series.get(axis_src) or {})[-n:]
+
+    out: list[Period] = []
+    for end in axis:
+        p = Period(end=end, fy=None)
+        for name, s in series.items():
+            f = s.get(end)
+            if f is None and C.CONCEPTS[name][0] == C.STOCK:
+                from datetime import date as _d
+
+                target = _d.fromisoformat(end)
+                cands = [(abs((_d.fromisoformat(k) - target).days), k) for k in s]
+                cands = [c for c in cands if c[0] <= 7]
+                if cands:
+                    f = s[min(cands)[1]]
+            if f is not None:
+                p.raw[name] = f.val
+                p.tags_used[name] = f.tag
+                if p.fy is None:
+                    p.fy = f.fy
+        out.append(p)
+    return out
+
+
+def ttm(qs: list[Period], concept: str) -> float | None:
+    """最近四个季度的合计（Trailing Twelve Months）。
+
+    不足四季、或四季之间存在缺口（相邻季末间隔超过 100 天）时返回 None ——
+    **拼错的 TTM 比没有 TTM 更危险**，它看起来是个正常数字。
+    """
+    from datetime import date
+
+    if len(qs) < 4:
+        return None
+    last4 = qs[-4:]
+    for a, b in zip(last4, last4[1:]):
+        from .edgar import QUARTER_MAX_DAYS, QUARTER_MIN_DAYS
+
+        gap = (date.fromisoformat(b.end) - date.fromisoformat(a.end)).days
+        if not (QUARTER_MIN_DAYS <= gap <= QUARTER_MAX_DAYS):
+            return None
+    vals = [q.raw.get(concept) for q in last4]
+    return None if any(v is None for v in vals) else sum(vals)
+
+
+def ttm_fcf(qs: list[Period]) -> float | None:
+    o, c = ttm(qs, "ocf"), ttm(qs, "capex")
+    return None if o is None or c is None else o - abs(c)
+
+
+def staleness_days(annual_end: str, quarter_end: str | None) -> int | None:
+    """最新季末比最新财年末新多少天 —— 用来判断年报视图有多陈旧。"""
+    from datetime import date
+
+    if not quarter_end:
+        return None
+    return (date.fromisoformat(quarter_end) - date.fromisoformat(annual_end)).days
+
+
 def prev_of(ps: list[Period], i: int) -> Period | None:
     """取 ps[i] 的上一期，**跨缺失年份时返回 None**。
 

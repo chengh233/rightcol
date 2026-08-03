@@ -82,6 +82,11 @@ def main() -> int:
     fcf0 = sum(fcfs) / len(fcfs) if fcfs else None
     fcf0_ex = sum(fcfs_ex) / len(fcfs_ex) if fcfs_ex else None
 
+    # TTM 口径：年报可能已过期一年，对周期股这是致命的
+    qs = M.build_quarters(facts, n=12)
+    ttm_fcf = M.ttm_fcf(qs)
+    stale = M.staleness_days(last.end, qs[-1].end if qs else None)
+
     a = V.DCFAssumptions(discount_rate=args.rate, terminal_growth=args.terminal, years=args.years)
     warns = a.check()
     if warns:
@@ -97,10 +102,19 @@ def main() -> int:
     print(f"- **企业价值**　{_b(ev)}  ← 逆向 DCF 的目标值")
     print(f"- 起点 FCF　　　{_b(fcf0)}  （近 {len(fcfs)} 年平均）")
     print(f"- 起点 FCF(扣SBC){_b(fcf0_ex)}  （近 {len(fcfs_ex)} 年平均）")
+    if ttm_fcf is not None:
+        print(f"- **TTM FCF**　　{_b(ttm_fcf)}  （最近四季，截至 {qs[-1].end}）")
+    if stale and stale >= 180:
+        print(f"\n  🔴 **年报视图已过期 {stale} 天**（财年止 {last.end}，最新季末 {qs[-1].end}）。")
+        print(f"     近 {args.fcf_years} 年平均是**跨周期口径**，TTM 是**当下口径**——")
+        print(f"     两者差距越大，说明这家公司正处在周期的陡峭段，任何单一起点都会误导。")
     print(f"- 折现率 r　　　{args.rate:.1%}　永续增长 g_t {args.terminal:.1%}　显式期 {args.years} 年\n")
 
     print("## 结论 —— 一个可证伪的命题\n")
-    for label, base in (("FCF", fcf0), ("FCF(扣SBC)", fcf0_ex)):
+    bases = [("FCF（近%d年均）" % args.fcf_years, fcf0), ("FCF(扣SBC)", fcf0_ex)]
+    if ttm_fcf is not None:
+        bases.append(("FCF（TTM 当下口径）", ttm_fcf))
+    for label, base in bases:
         if base is None or base <= 0:
             print(f"- **{label}**：起点为负或缺失 → DCF 不适用。")
             print("  （自由现金流为负时应改用单位经济模型 / 路径到盈利，见 FRAMEWORK.md §10）")

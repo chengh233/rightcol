@@ -28,6 +28,7 @@ def main() -> int:
     ap.add_argument("--years", type=int, default=10, help="回溯财年数（默认 10）")
     ap.add_argument("-o", "--out", help="输出目录；不给则打印到 stdout")
     ap.add_argument("--filings", action="store_true", help="附上最近 10-K 原文链接（精读层的入口）")
+    ap.add_argument("--no-quarters", action="store_true", help="跳过季度视图（默认包含）")
     args = ap.parse_args()
 
     ticker = args.ticker.upper()
@@ -42,7 +43,8 @@ def main() -> int:
         print(f"❌ {ticker}: 取不到年度数据（可能从未提交过 10-K）", file=sys.stderr)
         return 1
 
-    text = R.data_pack(ticker, E.company_name(ticker), periods)
+    quarters = None if args.no_quarters else M.build_quarters(facts, n=12)
+    text = R.data_pack(ticker, E.company_name(ticker), periods, quarters)
 
     if args.filings:
         try:

@@ -357,15 +357,37 @@ def annual_series(
         财年不等于日历年（Apple 财年 9 月底结束），因此 key 用**期末日期**而
         非年份——跨公司比较时你必须自己意识到财年错位。
     """
+    return _period_series(
+        facts, tags, kind=kind, taxonomy=taxonomy, strict_priority=strict_priority,
+        forms=("10-K", "10-K/A", "20-F", "20-F/A"), day_range=(340, 400),
+    )
+
+
+ANNUAL_FORMS = ("10-K", "10-K/A", "20-F", "20-F/A")
+QUARTERLY_FORMS = ("10-Q", "10-Q/A", "10-K", "10-K/A")
+
+
+def _period_series(
+    facts: dict,
+    tags: list[str],
+    *,
+    kind: str,
+    taxonomy: str,
+    strict_priority: bool,
+    forms: tuple[str, ...],
+    day_range: tuple[int, int],
+) -> dict[str, Fact]:
+    """按期间长度与申报类型抽取序列的公共内核（年度 / 季度共用）。"""
+    lo_d, hi_d = day_range
     # 第一步：按标签分别收集合格事实，并在标签内部做重述去重（取 filed 最新）
     by_tag: dict[str, dict[tuple[str | None, str], Fact]] = {}
     for tag in tags:
         bucket: dict[tuple[str | None, str], Fact] = {}
         for f in _extract(facts, tag, taxonomy):
-            if f.form not in ("10-K", "10-K/A", "20-F", "20-F/A"):
+            if f.form not in forms:
                 continue
             if kind == "flow":
-                if f.start is None or not (340 <= (f.days or 0) <= 400):
+                if f.start is None or not (lo_d <= (f.days or 0) <= hi_d):
                     continue
             else:  # stock / instant
                 if f.start is not None:
@@ -416,6 +438,142 @@ def annual_series(
 def latest_n(series: dict[str, Fact], n: int) -> dict[str, Fact]:
     keys = sorted(series)[-n:]
     return {k: series[k] for k in keys}
+
+
+def quarterly_series(
+    facts: dict,
+    tags: list[str],
+    *,
+    kind: str = "flow",
+    taxonomy: str = "us-gaap",
+    strict_priority: bool = False,
+) -> dict[str, Fact]:
+    """取出**单季度**序列，key 为季末日期。
+
+    为什么必须单独实现、不能复用年度那套：
+
+    坑 1 —— **同一家公司在 10-K 和 10-Q 里可能用不同标签**（实测）。
+        英伟达年报的营收用 `RevenueFromContractWithCustomerExcludingAssessedTax`，
+        季报却用 `Revenues`。所以季度序列必须**独立**跑一遍主标签选择，
+        不能沿用年报选出的主标签，否则会得到一个几乎全空的序列。
+
+    坑 2 —— **10-Q 里同时含单季值和年初至今(YTD)值**，两者 `end` 相同、
+        `start` 不同。这里用 80~100 天的区间长度筛掉 YTD。
+
+    坑 3 —— **Q4 不在任何 10-Q 里**。财年最后一季只出现在 10-K，而 10-K 报的是
+        全年。所以 Q4 必须用「全年 − 前三季」倒推，见 `derive_q4()`。
+
+    坑 4 —— 部分公司（尤其外国发行人、部分金融机构）**只报 YTD 不报单季**，
+        此时这里会返回空或缺季，需要用相邻 YTD 相减补，见 `_from_ytd()`。
+    """
+    q = _period_series(
+        facts, tags, kind=kind, taxonomy=taxonomy, strict_priority=strict_priority,
+        forms=QUARTERLY_FORMS, day_range=(QUARTER_MIN_DAYS, QUARTER_MAX_DAYS),
+    )
+    if kind == "flow":
+        # ⚠️ **必须无条件做 YTD 差分来补缺口**，不能只在"季度数不足"时才做。
+        #
+        # 因为**现金流量表在 10-Q 里永远是年初至今累计的**（实测 Micron：
+        # 90天 / 181天 / 272天，只有 Q1 恰好等于单季）。跨多年之后，
+        # 光是各年的 Q1 就能凑够 4 条，于是"不足才补"的条件永远不成立，
+        # 而 Q2/Q3 永远缺失 —— TTM 现金流因此长期算不出来。
+        #
+        # 真实的单季值优先，差分值只用来填空。
+        derived = _from_ytd(facts, tags, taxonomy=taxonomy, strict_priority=strict_priority)
+        q = {**derived, **q}
+    return dict(sorted(q.items()))
+
+
+QUARTER_MIN_DAYS, QUARTER_MAX_DAYS = 80, 120
+"""单季区间的容许长度。
+
+上限取 120 而非 100，是因为 **52/53 周财年制**（零售业普遍）的第四财季是
+**16 周 = 112 天**：实测 Costco 的季度是 12/12/12/16 周。窗口卡在 100 会把
+这类公司的 Q4 整个丢掉，TTM 因而永远算不出来。
+101~120 天之间不存在别的合法期间类型，放宽是安全的。"""
+
+
+def _from_ytd(
+    facts: dict, tags: list[str], *, taxonomy: str, strict_priority: bool
+) -> dict[str, Fact]:
+    """用**相邻累计值相减**还原单季。
+
+    为什么这一步不可省：**10-Q 里的现金流量表永远是年初至今累计的**，
+    不是单季（实测 Micron：90 / 181 / 272 天）。不做差分就永远拿不到
+    单季现金流，TTM 自由现金流也就永远是空的。
+
+    做法：把**共享同一个 start** 的所有累计区间（Q1 / H1 / 9M / 全年）按终点
+    排序，逐个相减。关键是**必须把 Q1 那条也纳入链条** —— 它既是单季也是
+    首个累计值，漏掉它会让 Q2 差分不出来（这是第一版的 bug）。
+
+    还原出来的事实 `tag` 带 `+derived(YTD差分)` 后缀 —— **口径必须留痕**，
+    因为它是算出来的，不是申报的。
+    """
+    from datetime import date
+
+    # 收集全部累计区间：Q1(~90天) / H1(~181) / 9M(~272) / 全年(~365)
+    cumulative: dict[tuple[str | None, str], Fact] = {}
+    for lo, hi in ((QUARTER_MIN_DAYS, QUARTER_MAX_DAYS), (160, 200), (250, 290), (340, 400)):
+        got = _period_series(
+            facts, tags, kind="flow", taxonomy=taxonomy, strict_priority=strict_priority,
+            forms=QUARTERLY_FORMS + ANNUAL_FORMS, day_range=(lo, hi),
+        )
+        for f in got.values():
+            cumulative[(f.start, f.end)] = f
+    if not cumulative:
+        return {}
+
+    # 按 start 分组 —— 同一财年的各期累计值共享同一个起点
+    groups: dict[str, list[Fact]] = {}
+    for f in cumulative.values():
+        if f.start:
+            groups.setdefault(f.start, []).append(f)
+
+    out: dict[str, Fact] = {}
+    for start, fs in groups.items():
+        fs.sort(key=lambda x: x.end)
+        prev_end, prev_val = start, 0.0
+        for f in fs:
+            span = (date.fromisoformat(f.end) - date.fromisoformat(prev_end)).days
+            if QUARTER_MIN_DAYS <= span <= QUARTER_MAX_DAYS:
+                out[f.end] = Fact(
+                    tag=f.tag + "+derived(YTD差分)", start=prev_end, end=f.end,
+                    val=f.val - prev_val, fy=f.fy, fp=f.fp, form=f.form,
+                    filed=f.filed, unit=f.unit,
+                )
+            prev_end, prev_val = f.end, f.val
+    return out
+
+
+def derive_q4(quarters: dict[str, Fact], annuals: dict[str, Fact]) -> dict[str, Fact]:
+    """用「全年 − 前三季」倒推财年最后一季，补进季度序列。
+
+    **这一步不做，任何 TTM 都是错的** —— 因为最近四个季度里必然有一个 Q4，
+    而它从不出现在 10-Q 里。实测英伟达：漏掉 Q4 会让 TTM 净利润从 1596 亿
+    变成拼错的数，P/E 从 30.3× 变成 35.7×。
+
+    只在**恰好凑齐前三季**时倒推；凑不齐就不猜（返回时不含该财年 Q4）。
+    """
+    from datetime import date
+
+    out = dict(quarters)
+    for fy_end, a in annuals.items():
+        if fy_end in out or a.start is None:
+            continue
+        fy_start = date.fromisoformat(a.start)
+        inner = [f for k, f in quarters.items() if a.start < k < fy_end and date.fromisoformat(k) > fy_start]
+        if len(inner) != 3:
+            continue  # 凑不齐三季就不倒推，绝不猜
+        covered = sum(f.val for f in inner)
+        last_end = max(f.end for f in inner)
+        span = (date.fromisoformat(fy_end) - date.fromisoformat(last_end)).days
+        if not (QUARTER_MIN_DAYS <= span <= QUARTER_MAX_DAYS):
+            continue
+        out[fy_end] = Fact(
+            tag=a.tag + "+derived(全年−前三季)", start=last_end, end=fy_end,
+            val=a.val - covered, fy=a.fy, fp="Q4", form=a.form, filed=a.filed, unit=a.unit,
+        )
+    return dict(sorted(out.items()))
 
 
 # --------------------------------------------------------------------------

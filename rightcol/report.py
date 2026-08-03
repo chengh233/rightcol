@@ -33,8 +33,73 @@ def _row(cells: list[str]) -> str:
     return "| " + " | ".join(cells) + " |"
 
 
-def data_pack(ticker: str, name: str, periods: list[Period]) -> str:
-    """生成一家公司的确定性数据包。"""
+def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
+    """季度视图 + TTM。放在最前面，因为**「数据有多旧」是你该知道的第一件事**。"""
+    L: list[str] = []
+    A = L.append
+    stale = M.staleness_days(ps[-1].end, qs[-1].end)
+
+    A("## ⏱ 最新四个季度 · TTM")
+    A("")
+    if stale is not None and stale >= 180:
+        A(f"> 🔴 **年报视图已过期 {stale} 天**（最新财年止 {ps[-1].end}，最新季末 {qs[-1].end}）。")
+        A("> **对周期股这是致命的** —— 下面所有年度表格反映的可能是完全不同的经营状态，")
+        A("> 请以本节的 TTM 与季度趋势为准。")
+    elif stale:
+        A(f"> 年报止 {ps[-1].end}，最新季末 **{qs[-1].end}**（新 {stale} 天）。")
+    else:
+        A(f"> 年报已是最新（止 {ps[-1].end}），季度视图仅用于看季内趋势。")
+    A("")
+
+    A(_row(["季末", "营收", "营收YoY", "毛利率", "营业利润率", "净利润", "经营现金流", "资本开支", "FCF"]))
+    A(_row(["---"] * 9))
+    by_end = {q.end: q for q in qs}
+    for i, q in enumerate(qs[-8:]):
+        mg = M.margins(q)
+        # 同比：找 4 个季度前那一期（不用环比 —— 季节性会淹没趋势）
+        idx = qs.index(q)
+        yoy = None
+        if idx >= 4 and qs[idx - 4].revenue:
+            yoy = M._div(M._sub(q.revenue, qs[idx - 4].revenue), qs[idx - 4].revenue)
+        A(
+            _row(
+                [
+                    q.end,
+                    _num(q.revenue),
+                    _pct(yoy),
+                    _pct(mg["gross"]),
+                    _pct(mg["operating"]),
+                    _num(q.net_income),
+                    _num(q.ocf),
+                    _num(M.capex(q)),
+                    _num(M.fcf(q)),
+                ]
+            )
+        )
+    A("")
+
+    t_rev, t_ni, t_fcf = M.ttm(qs, "revenue"), M.ttm(qs, "net_income"), M.ttm_fcf(qs)
+    A(_row(["TTM（最近四季合计）", "营收", "净利润", "自由现金流"]))
+    A(_row(["---"] * 4))
+    A(_row(["**TTM**", _num(t_rev), _num(t_ni), _num(t_fcf)]))
+    A(_row(["最新完整财年", _num(ps[-1].revenue), _num(ps[-1].net_income), _num(M.fcf(ps[-1]))]))
+    if t_rev and ps[-1].revenue:
+        A(_row(["差异", _pct(t_rev / ps[-1].revenue - 1),
+                _pct(t_ni / ps[-1].net_income - 1) if t_ni and ps[-1].net_income else "—",
+                _pct(t_fcf / M.fcf(ps[-1]) - 1) if t_fcf and M.fcf(ps[-1]) else "—"]))
+    A("")
+    A("**怎么读**：季度同比用的是**四个季度前**同期，不是环比——季节性会淹没趋势。")
+    A("TTM 与最新财年的差异越大，说明年报视图越不能代表当下。")
+    A("")
+    A("⚠️ 口径说明：**10-Q 里的现金流量表是年初至今累计的**，本项目用相邻累计值")
+    A("相减还原单季；财年最后一季不在任何 10-Q 里，用「全年 − 前三季」倒推。")
+    A("两类还原值在第七节的口径留痕里带 `+derived` 后缀。")
+    A("")
+    return "\n".join(L)
+
+
+def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Period] | None = None) -> str:
+    """生成一家公司的确定性数据包。`quarters` 给了就额外输出季度视图与 TTM。"""
     if not periods:
         return f"# {ticker}\n\n⚠️ 无可用年度数据。"
 
@@ -50,6 +115,9 @@ def data_pack(ticker: str, name: str, periods: list[Period]) -> str:
     A("> 本文件只有数字，没有判断。判断请对照 `FRAMEWORK.md` 的三个闸门自行做出。")
     A("> 缺失一律显示 `—`，**绝不以 0 填充**——数据中断必须长得像数据中断。")
     A("")
+
+    if quarters:
+        A(_quarterly_section(ps, quarters))
 
     # ---------------- 闸门一：这是不是一门好生意 ----------------
     A("## 一、赚不赚钱 · 盈利能力与资本回报")
