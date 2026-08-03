@@ -212,13 +212,3 @@ shares_outstanding       CommonStockSharesOutstanding
 short_term_investments   AvailableForSaleSecuritiesDebtSecuritiesCurrent
 tax_expense              IncomeTaxExpenseBenefit
 ```
-
-## 八、10-K 原文（精读层入口）
-
-- 2025-10-03（报告期 2025-08-28）— https://www.sec.gov/Archives/edgar/data/723125/000072312525000028/mu-20250828.htm
-- 2024-10-04（报告期 2024-08-29）— https://www.sec.gov/Archives/edgar/data/723125/000072312524000027/mu-20240829.htm
-- 2023-10-06（报告期 2023-08-31）— https://www.sec.gov/Archives/edgar/data/723125/000072312523000054/mu-20230831.htm
-- 2022-10-07（报告期 2022-09-01）— https://www.sec.gov/Archives/edgar/data/723125/000072312522000048/mu-20220901.htm
-- 2021-10-08（报告期 2021-09-02）— https://www.sec.gov/Archives/edgar/data/723125/000072312521000065/mu-20210902.htm
-
-数字之外，这些地方性价比最高：**风险因素的逐年 diff**（新增/删除了什么）、MD&A 里管理层对变化的解释、附注中的分部数据与客户集中度、以及会计政策变更。措辞的变化常常比财务指标更早反映问题。

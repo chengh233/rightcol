@@ -56,6 +56,17 @@ class Period:
     报告打印出「营收 YoY −12.9%」—— 那实际是相隔 2192 天的变化，
     而 ROIC / ROE / 应计比率用的是「2016 年与 2010 年的平均资产」。"""
 
+    structural_break: bool = False
+    """营收同比出现 **±80% 以上**的剧变 —— 需人工确认是不是业务重组/分拆。
+
+    `gap_before` 只能发现**缺失年份**，发现不了**业务换了**。实测 Nebius
+    （前身 Yandex N.V.）2022 年营收从 47.9 亿掉到 0.1 亿（−99.7%），
+    那不是经营崩溃，是剥离了俄罗斯业务 —— 剥离前后的财务序列**毫无可比性**，
+    任何跨越该年的 CAGR、趋势、平均值都是无意义的。
+
+    ⚠️ 这只是**提示**不是判定：高增长公司也会有 +700% 的同比
+    （实测 CoreWeave 2024 年 +736%，那是真实增长）。看到标记要回原文确认。"""
+
     balance_ok: bool | None = None
     """会计恒等式 资产 == 负债+权益 是否成立。False 说明这一年的资产负债表
     科目来自**不同申报期**（各标签独立取 filed 最新所致），拼出来的是一张
@@ -107,6 +118,13 @@ def build_periods(facts: dict, years: int = 12) -> list[Period]:
         gap = (_date.fromisoformat(out[i].end) - _date.fromisoformat(out[i - 1].end)).days
         if gap > 400:
             out[i].gap_before = True
+
+    # 业务结构性断裂：营收同比剧变，提示可能是重组/分拆而非经营变化
+    for i in range(1, len(out)):
+        a, b = out[i - 1].revenue, out[i].revenue
+        if a and b and a > 0:
+            if abs(b / a - 1) >= 0.80:
+                out[i].structural_break = True
 
     # 会计恒等式护栏 —— 定义了就要真的用上
     for p in out:

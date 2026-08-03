@@ -208,11 +208,3 @@ total_investments        AvailableForSaleSecuritiesDebtSecurities
 ⚠️ 最新财年缺失：`gross_profit`, `inventory`。
 若这是金融机构（银行/保险），**这些科目是结构性不存在，不是数据缺失**——
 对它套用毛利率、周转率、FCF 会得到纯噪音，须改用 NIM / 拨备覆盖 / 资本充足率等专用指标。
-
-## 八、10-K 原文（精读层入口）
-
-- 2026-02-05（报告期 2025-12-31）— https://www.sec.gov/Archives/edgar/data/1652044/000165204426000018/goog-20251231.htm
-- 2025-02-05（报告期 2024-12-31）— https://www.sec.gov/Archives/edgar/data/1652044/000165204425000014/goog-20241231.htm
-- 2024-01-31（报告期 2023-12-31）— https://www.sec.gov/Archives/edgar/data/1652044/000165204424000022/goog-20231231.htm
-
-数字之外，这些地方性价比最高：**风险因素的逐年 diff**（新增/删除了什么）、MD&A 里管理层对变化的解释、附注中的分部数据与客户集中度、以及会计政策变更。措辞的变化常常比财务指标更早反映问题。

@@ -64,12 +64,22 @@ def main() -> int:
         mcap = args.market_cap
         shares_note = "（直接给定市值）"
     else:
-        shares = last.shares_outstanding or last.shares_diluted
+        shares = last.shares_outstanding
+        proxy = False
+        if not shares:
+            shares, proxy = last.shares_diluted, True
         if not shares:
             print(f"❌ {ticker}: 取不到股本，请改用 --market-cap", file=sys.stderr)
             return 1
         mcap = args.price * shares
         shares_note = f"（{shares / 1e9:.3f}B 股 × ${args.price:,.2f}，股本取自最新申报，未做拆股追溯调整）"
+        if proxy:
+            # ⚠️ 退而求其次用了**加权平均摊薄股数**，它不是时点股本。
+            # 对当年 IPO、增发频繁、或多重股权结构（A/B/C 类分别申报）的公司，
+            # 这个数会显著低估当前股本，从而低估市值与企业价值。
+            shares_note += "\n  ⚠️ **股本用的是「加权平均摊薄股数」代理，不是时点值** ——"
+            shares_note += "\n     该公司未申报 CommonStockSharesOutstanding（常见于当年 IPO 或多重股权结构）。"
+            shares_note += "\n     若公司年内 IPO/增发，此值会**显著低估**真实股本与市值，请改用 --market-cap。"
 
     # 企业价值：先扣净现金 —— 这是段永平算苹果时做的第一件事
     net_cash = M._sub(M.excess_cash(last), M.total_debt(last))
@@ -132,11 +142,15 @@ def main() -> int:
     hist_fcf = [M.fcf(p) for p in ps]
     for n in (5, 10):
         if len(ps) > n:
-            ends = [p.end for p in ps[-(n + 1) :]]
-            c = M.cagr(hist_fcf[-(n + 1) :], ends)
-            rc = M.cagr([p.revenue for p in ps[-(n + 1) :]], ends)
+            win = ps[-(n + 1) :]
+            ends = [p.end for p in win]
+            # 窗口内若有业务重组/分拆，跨越它的 CAGR 毫无意义
+            broken = any(p.structural_break for p in win[1:])
+            c = None if broken else M.cagr(hist_fcf[-(n + 1) :], ends)
+            rc = None if broken else M.cagr([p.revenue for p in win], ends)
+            tail = "（窗口内存在业务重组/分拆，跨期增速无意义）" if broken else ""
             print(f"\n- 参照：过去 {n} 年 FCF CAGR {f'{c:.1%}' if c else '—'}　"
-                  f"营收 CAGR {f'{rc:.1%}' if rc else '—'}")
+                  f"营收 CAGR {f'{rc:.1%}' if rc else '—'}{tail}")
 
     print("\n## 敏感性 —— 为什么不该相信任何一个精确目标价\n")
     if fcf0 and fcf0 > 0:

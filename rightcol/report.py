@@ -145,6 +145,9 @@ def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Peri
         if p.balance_ok is False:
             flag += "⚠️"
             _note("balance", p.end)
+        if p.structural_break:
+            flag += "✂️"
+            _note("structural_break", p.end)
         if r is not None and r > M.ROIC_MEANINGFUL_CEILING:
             flag += "∞"
             _note("roic_ceiling", p.end)
@@ -176,6 +179,11 @@ def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Peri
             "roic_ceiling": ("∞", "**ROIC > 100%**：轻资产 + 负营运资本使投入资本极小。这个数"
                                   "真实但**已失去鉴别力**（分母接近零，微小口径变化就能让它剧烈摆动），"
                                   "请改看自由现金流的绝对额与增长的持续性。"),
+            "structural_break": ("✂️", "**营收同比剧变（±80% 以上）** —— 请回原文确认这是真实经营变化，"
+                                       "还是**业务重组 / 分拆 / 并购**导致的口径断裂。若是后者，"
+                                       "**任何跨越该年的 CAGR、趋势与平均值都无意义**。"
+                                       "（实测 Nebius 2022 年 −99.7% 是剥离俄罗斯业务；"
+                                       "CoreWeave 2024 年 +736% 则是真实增长——所以这只是提示，不是判定。）"),
             "tax_fallback": ("†", "**有效税率异常**（亏损年或一次性税务事项），NOPAT 与 ROIC 使用了"
                                   "21% 法定税率**假设**，不是该年实际税率。"),
         }

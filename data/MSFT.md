@@ -211,13 +211,3 @@ short_term_investments   ShortTermInvestments
 tax_expense              IncomeTaxExpenseBenefit
 total_investments        AvailableForSaleSecuritiesDebtSecurities
 ```
-
-## 八、10-K 原文（精读层入口）
-
-- 2026-07-29（报告期 2026-06-30）— https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm
-- 2025-07-30（报告期 2025-06-30）— https://www.sec.gov/Archives/edgar/data/789019/000095017025100235/msft-20250630.htm
-- 2024-07-30（报告期 2024-06-30）— https://www.sec.gov/Archives/edgar/data/789019/000095017024087843/msft-20240630.htm
-- 2023-07-27（报告期 2023-06-30）— https://www.sec.gov/Archives/edgar/data/789019/000095017023035122/msft-20230630.htm
-- 2022-07-28（报告期 2022-06-30）— https://www.sec.gov/Archives/edgar/data/789019/000156459022026876/msft-10k_20220630.htm
-
-数字之外，这些地方性价比最高：**风险因素的逐年 diff**（新增/删除了什么）、MD&A 里管理层对变化的解释、附注中的分部数据与客户集中度、以及会计政策变更。措辞的变化常常比财务指标更早反映问题。

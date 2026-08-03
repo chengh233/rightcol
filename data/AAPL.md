@@ -212,13 +212,3 @@ shares_outstanding       CommonStockSharesOutstanding
 short_term_investments   MarketableSecuritiesCurrent
 tax_expense              IncomeTaxExpenseBenefit
 ```
-
-## 八、10-K 原文（精读层入口）
-
-- 2025-10-31（报告期 2025-09-27）— https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm
-- 2024-11-01（报告期 2024-09-28）— https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm
-- 2023-11-03（报告期 2023-09-30）— https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.htm
-- 2022-10-28（报告期 2022-09-24）— https://www.sec.gov/Archives/edgar/data/320193/000032019322000108/aapl-20220924.htm
-- 2021-10-29（报告期 2021-09-25）— https://www.sec.gov/Archives/edgar/data/320193/000032019321000105/aapl-20210925.htm
-
-数字之外，这些地方性价比最高：**风险因素的逐年 diff**（新增/删除了什么）、MD&A 里管理层对变化的解释、附注中的分部数据与客户集中度、以及会计政策变更。措辞的变化常常比财务指标更早反映问题。

@@ -382,8 +382,27 @@ def _period_series(
     # 第一步：按标签分别收集合格事实，并在标签内部做重述去重（取 filed 最新）
     by_tag: dict[str, dict[tuple[str | None, str], Fact]] = {}
     for tag in tags:
+        raw = _extract(facts, tag, taxonomy)
+
+        # ⚠️ **绝不能把不同计量单位的事实混进同一条序列。**
+        #
+        # 实测事故：Nebius（前身 Yandex N.V.，外国发行人用 20-F 申报）同时以
+        # **卢布和美元**申报营收 —— RUB 覆盖 2009–2023，USD 覆盖 2011–2025。
+        # 不按单位过滤的话，2020 年会取到 2183.44 亿**卢布**，被当成 2183 亿
+        # **美元**排进序列（真实值 29.56 亿美元，差 74 倍），而且不报错。
+        #
+        # 规则：一条序列只用一个单位。货币优先 USD（本项目只做美股，所有
+        # 横向比较都隐含美元口径）；没有 USD 时取记录最多的那个单位。
+        units = {}
+        for f in raw:
+            units.setdefault(f.unit, 0)
+            units[f.unit] += 1
+        if len(units) > 1:
+            chosen = "USD" if "USD" in units else max(units, key=lambda u: units[u])
+            raw = [f for f in raw if f.unit == chosen]
+
         bucket: dict[tuple[str | None, str], Fact] = {}
-        for f in _extract(facts, tag, taxonomy):
+        for f in raw:
             if f.form not in forms:
                 continue
             if kind == "flow":

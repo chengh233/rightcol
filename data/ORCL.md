@@ -210,13 +210,3 @@ tax_expense              IncomeTaxExpenseBenefit
 ⚠️ 最新财年缺失：`gross_profit`, `inventory`。
 若这是金融机构（银行/保险），**这些科目是结构性不存在，不是数据缺失**——
 对它套用毛利率、周转率、FCF 会得到纯噪音，须改用 NIM / 拨备覆盖 / 资本充足率等专用指标。
-
-## 八、10-K 原文（精读层入口）
-
-- 2026-06-22（报告期 2026-05-31）— https://www.sec.gov/Archives/edgar/data/1341439/000119312526277521/orcl-20260531.htm
-- 2025-06-18（报告期 2025-05-31）— https://www.sec.gov/Archives/edgar/data/1341439/000095017025087926/orcl-20250531.htm
-- 2024-06-20（报告期 2024-05-31）— https://www.sec.gov/Archives/edgar/data/1341439/000095017024075605/orcl-20240531.htm
-- 2023-06-20（报告期 2023-05-31）— https://www.sec.gov/Archives/edgar/data/1341439/000095017023028914/orcl-20230531.htm
-- 2022-06-21（报告期 2022-05-31）— https://www.sec.gov/Archives/edgar/data/1341439/000156459022023675/orcl-10k_20220531.htm
-
-数字之外，这些地方性价比最高：**风险因素的逐年 diff**（新增/删除了什么）、MD&A 里管理层对变化的解释、附注中的分部数据与客户集中度、以及会计政策变更。措辞的变化常常比财务指标更早反映问题。
