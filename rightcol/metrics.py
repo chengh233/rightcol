@@ -483,8 +483,10 @@ def d_and_a_total(p: Period) -> float | None:
         return None
     tag = p.tags_used.get("d_and_a", "")
     amort = p.amort_intangibles
-    # 只有窄口径标签才需要补；DDA 本身已含摊销，再加就重复了
-    if tag == "DepreciationAndAmortization" and amort and amort > base * 0.3:
+    # 只有**窄口径**标签才需要补无形摊销；`DepreciationDepletionAndAmortization`
+    # 与 `DepreciationAmortizationAndAccretionNet` 本身已含摊销，再加就重复了。
+    NARROW = ("DepreciationAndAmortization", "Depreciation")
+    if tag in NARROW and amort:
         return base + amort
     return base
 

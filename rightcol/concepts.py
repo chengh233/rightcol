@@ -89,17 +89,24 @@ CONCEPTS: dict[str, tuple[str, list[str]]] = {
             "PaymentsToExploreAndDevelopOilAndGasProperties",
         ],
     ),
-    # ⚠️ 刻意**不含**裸的 `Depreciation` —— 它只有折旧、不含摊销。
-    # 对并购驱动的公司差一个数量级：实测 Marvell 真实 D&A 主要是收购无形资产
-    # 摊销（1.4B 以上），而 `Depreciation` 只有 0.15~0.22B。若放进回退链，
-    # 「资本开支/折旧」会被高估约 10 倍，报告会把它误读成剧烈扩张期。
-    # 宁可返回 None 显示「—」，也不要给一个小一个数量级的数。
+    # ⚠️ 链尾的裸 `Depreciation` **只含折旧不含摊销**，单用会低估。
+    # 实测 Marvell：真实 D&A 主要是收购无形资产摊销（0.9B+），而 `Depreciation`
+    # 只有 0.2B —— 单用会把「资本开支/折旧」高估数倍，误读成扩张期。
+    # 但直接把它排除也不对：微软与谷歌**只申报这一个标签**，排除会让它们的
+    # 折旧完全取不到。正解是保留它，并在 metrics.d_and_a_total() 里
+    # 与 amort_intangibles 相加还原完整口径。
     "d_and_a": (
         FLOW,
         [
             "DepreciationDepletionAndAmortization",
             "DepreciationAmortizationAndAccretionNet",
             "DepreciationAndAmortization",
+            # 裸 `Depreciation` 放在链尾 —— 它**只含折旧不含摊销**，单用会低估。
+            # 但微软与谷歌恰恰只申报这一个标签（实测 MSFT FY2026 = 34.3B、
+            # GOOGL FY2025 = 21.1B），删掉它会让这两家的折旧完全取不到。
+            # 解法不是排除它，而是在 metrics.d_and_a_total() 里与无形资产
+            # 摊销相加 —— 排除是我修 Marvell 时的过度反应。
+            "Depreciation",
         ],
     ),
     # 收购无形资产摊销，单列。`DepreciationAndAmortization` 在并购驱动的公司里
