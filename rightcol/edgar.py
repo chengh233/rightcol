@@ -124,10 +124,33 @@ def cik_candidates(ticker: str) -> list[str]:
     return list(dict.fromkeys(hits))
 
 
-def _has_gaap(cik: str) -> bool:
+def _has_gaap(cik: str, require_annual: bool = True) -> bool:
+    """该 CIK 是否有可用的 us-gaap 事实。
+
+    ⚠️ `require_annual=True` 是关键，而且是**被现实教出来的**：
+
+    最初这里只检查"有没有 us-gaap 事实"。但 ExxonMobil 重组后，新设的
+    `ExxonMobil Holdings Corp` 在几周内提交了首份 **10-Q** —— 于是它突然
+    有了 94 个 us-gaap 标签，护栏判定"有数据"，主体回溯不再触发。
+    可这个壳**一份 10-K 都没有**，而年度序列只认 10-K，结果是
+    「取不到年度数据」。前身 CIK 那边有 438 个标签、10-K 回溯到 2007 年。
+
+    教训：**"有数据"和"有你需要的那种数据"是两件事。** 继承发行人会先
+    交季报再交年报，中间这段窗口足以骗过一个只看"有没有"的检查。
+    """
     try:
         facts = _get_json(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", cache_key=f"facts_{cik}")
-        return bool(facts.get("facts", {}).get("us-gaap"))
+        ug = facts.get("facts", {}).get("us-gaap")
+        if not ug:
+            return False
+        if not require_annual:
+            return True
+        annual_forms = {"10-K", "10-K/A", "20-F", "20-F/A"}
+        for tag in ("Assets", "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "NetIncomeLoss"):
+            for rows in ug.get(tag, {}).get("units", {}).values():
+                if any(r.get("form") in annual_forms for r in rows):
+                    return True
+        return False
     except Exception:
         return False
 
