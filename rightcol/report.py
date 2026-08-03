@@ -51,7 +51,7 @@ def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
         A(f"> 年报已是最新（止 {ps[-1].end}），季度视图仅用于看季内趋势。")
     A("")
 
-    A(_row(["季末", "营收", "营收YoY", "毛利率", "营业利润率", "净利润", "经营现金流", "资本开支", "FCF"]))
+    A(_row(["季末", "营收", "环比", "同比", "毛利率", "营业利润率", "营业成本", "存货/营收", "FCF"]))
     A(_row(["---"] * 9))
     by_end = {q.end: q for q in qs}
     for i, q in enumerate(qs[-8:]):
@@ -61,17 +61,23 @@ def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
         yoy = None
         if idx >= 4 and qs[idx - 4].revenue:
             yoy = M._div(M._sub(q.revenue, qs[idx - 4].revenue), qs[idx - 4].revenue)
+        # 环比：拐点比同比早两三个季度出信号（实测 AMD 同比 +37.8% 而环比已 −0.2%）
+        qoq = M._div(M._sub(q.revenue, qs[idx - 1].revenue), qs[idx - 1].revenue) if idx else None
+        # 营业成本：与营收增速对比 → 拆出增长里有多少是价格
+        cogs = q.cogs if q.cogs is not None else (
+            q.revenue - q.gross_profit if (q.revenue is not None and q.gross_profit is not None) else None
+        )
         A(
             _row(
                 [
                     q.end,
                     _num(q.revenue),
+                    _pct(qoq),
                     _pct(yoy),
                     _pct(mg["gross"]),
                     _pct(mg["operating"]),
-                    _num(q.net_income),
-                    _num(q.ocf),
-                    _num(M.capex(q)),
+                    _num(cogs),
+                    _pct(M._div(q.inventory, q.revenue)),
                     _num(M.fcf(q)),
                 ]
             )
@@ -88,8 +94,17 @@ def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
                 _pct(t_ni / ps[-1].net_income - 1) if t_ni and ps[-1].net_income else "—",
                 _pct(t_fcf / M.fcf(ps[-1]) - 1) if t_fcf and M.fcf(ps[-1]) else "—"]))
     A("")
-    A("**怎么读**：季度同比用的是**四个季度前**同期，不是环比——季节性会淹没趋势。")
-    A("TTM 与最新财年的差异越大，说明年报视图越不能代表当下。")
+    A("**怎么读**（详见 FRAMEWORK.md §5.8「季度视角」的四个动作）：")
+    A("")
+    A("1. **拆价与量** —— 比较**营收**与**营业成本**的增速。成本不动而收入暴涨，")
+    A("   说明增量几乎全是**价格**，而价格驱动的增长会引来供给、均值回归。")
+    A("   实测 Micron：营收 +377% 而营业成本仅 +19%。")
+    A("2. **看存货** —— 这里用 **存货/营收** 而非存货天数：价格暴涨时毛利率飙升、")
+    A("   成本占比骤降，会让存货天数**假性上升**（实测 SanDisk 从 121「升」到 158，")
+    A("   而存货绝对额是平的、存货/营收其实从 65% 降到 38%）。")
+    A("3. **环比比同比先出信号** —— 对斜率陡峭的公司，同比会掩盖拐点。")
+    A("   实测 AMD：同比仍 +37.8%，环比已 −0.2%。")
+    A("4. **TTM 与最新财年差异越大**，年报视图越不能代表当下。")
     A("")
     A("⚠️ 口径说明：**10-Q 里的现金流量表是年初至今累计的**，本项目用相邻累计值")
     A("相减还原单季；财年最后一季不在任何 10-Q 里，用「全年 − 前三季」倒推。")
