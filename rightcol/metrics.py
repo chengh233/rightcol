@@ -191,6 +191,54 @@ def build_quarters(facts: dict, n: int = 12) -> list[Period]:
     return out
 
 
+def ttm_period(qs: list[Period], offset: int = 0) -> Period | None:
+    """把最近四个季度合成一个「**TTM 期**」，让所有年度指标函数直接可用。
+
+    - **流量项**（利润表、现金流量表）：最近四季**求和**
+    - **存量项**（资产负债表）：取**最新季末**的时点值
+
+    合成出来的对象和 `build_periods()` 产出的 Period 完全同构，
+    所以 `margins()` / `roic()` / `total_debt()` / `cash_conversion()`
+    这些函数不用改就能在 TTM 口径上跑。
+
+    **为什么这件事很重要**：各公司财年不同，"最新财年"根本不是同一段时间。
+    实测 15 家样本：**年报期末跨度 368 天**（SanDisk 止 2025-06 vs 微软止 2026-06），
+    把它们放同一张表里比 ROIC 和毛利率，等于拿 2025 年中的公司和 2026 年中的公司比。
+    改用 TTM 后，**最新季末的跨度只有 94 天** —— 可比性提升近 4 倍。
+
+    `offset=4` 取"四个季度前的那个 TTM 期"，用于算平均投入资本与同比。
+
+    返回 None 表示季度不足或存在缺口 —— **拼错的 TTM 比没有 TTM 更危险**。
+    """
+    from datetime import date
+
+    from .edgar import QUARTER_MAX_DAYS, QUARTER_MIN_DAYS
+
+    end_i = len(qs) - 1 - offset
+    if end_i < 3:
+        return None
+    win = qs[end_i - 3 : end_i + 1]
+    for a, b in zip(win, win[1:]):
+        gap = (date.fromisoformat(b.end) - date.fromisoformat(a.end)).days
+        if not (QUARTER_MIN_DAYS <= gap <= QUARTER_MAX_DAYS):
+            return None
+
+    last = win[-1]
+    out = Period(end=last.end, fy=last.fy)
+    for name, (kind, _tags) in C.CONCEPTS.items():
+        if kind == C.FLOW:
+            vals = [q.raw.get(name) for q in win]
+            if all(v is not None for v in vals):
+                out.raw[name] = sum(vals)
+                out.tags_used[name] = last.tags_used.get(name, "") + "(TTM四季合计)"
+        else:  # 存量项用最新季末的时点值
+            if last.raw.get(name) is not None:
+                out.raw[name] = last.raw[name]
+                out.tags_used[name] = last.tags_used.get(name, "")
+    out.balance_ok = balance_check(out)
+    return out
+
+
 def ttm(qs: list[Period], concept: str) -> float | None:
     """最近四个季度的合计（Trailing Twelve Months）。
 

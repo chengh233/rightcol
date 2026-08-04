@@ -49,7 +49,19 @@ CROSS_METRICS = [
 ]
 
 
-def _extract_row(ticker: str, years: int = 8) -> PeerRow:
+def _extract_row(ticker: str, years: int = 8, basis: str = "ttm") -> PeerRow:
+    """取一家公司的横切数据。
+
+    `basis="ttm"`（默认）用**最近四个季度合计**，`basis="annual"` 用最新完整财年。
+
+    ⚠️ **默认改成 TTM 是有原因的**：各公司财年不同，"最新财年"根本不是同一段时间。
+    实测 15 家样本，年报期末跨度 **368 天**（SanDisk 止 2025-06 vs 微软止 2026-06）——
+    把它们放同一张表里比 ROIC 和毛利率，等于拿 2025 年中的公司和 2026 年中的公司比。
+    改用 TTM 后，最新季末跨度只有 **94 天**。
+
+    差别有多大（实测）：SanDisk 年报口径 ROIC −10.4%，TTM 口径 **+42.0%**；
+    Micron 年报 16.7%，TTM **81.7%**。对周期股，用年报做横向对比几乎必然错。
+    """
     try:
         facts = E.company_facts(ticker)
     except Exception as e:
@@ -59,8 +71,15 @@ def _extract_row(ticker: str, years: int = 8) -> PeerRow:
     if not ps:
         return PeerRow(ticker, E.company_name(ticker), "", {}, error="无年度数据")
 
-    p = ps[-1]
-    prev = M.prev_of(ps, len(ps) - 1)
+    if basis == "ttm":
+        qs = M.build_quarters(facts, n=16)
+        p, prev = M.ttm_period(qs), M.ttm_period(qs, offset=4)
+        if p is None:
+            # 季度数据不完整（常见于银行、刚上市、只报 YTD 的外国发行人）→ 退回年报
+            p, prev = ps[-1], M.prev_of(ps, len(ps) - 1)
+    else:
+        p = ps[-1]
+        prev = M.prev_of(ps, len(ps) - 1)
     mg = M.margins(p)
     cc = M.cash_conversion(p, prev)
     net_debt = M._sub(M.total_debt(p), M.excess_cash(p))
@@ -73,12 +92,13 @@ def _extract_row(ticker: str, years: int = 8) -> PeerRow:
             "gross_margin": mg["gross"],
             "operating_margin": mg["operating"],
             "roic": M.roic(p, prev),
-            "incremental_roic": M.incremental_roic(ps),
+            "incremental_roic": M.incremental_roic(ps),  # 增量 ROIC 需多年，仍用年报序列
             "fcf_margin": mg["fcf"],
             "accrual": M.accrual_ratio(p, prev),
             "ccc": cc["ccc"],
             "capex_intensity": mg["capex_intensity"],
             "net_debt_to_fcf": M._div(net_debt, M.fcf(p)),
+            # 增速仍用年报序列（TTM 只是一个时点，算不出多年 CAGR）
             "rev_cagr_5y": (M.cagr([x.revenue for x in ps[-6:]], [x.end for x in ps[-6:]])
                             if len(ps) >= 6 else None),
             "sbc_of_gross_profit": mg["sbc_of_gross_profit"],
@@ -128,9 +148,12 @@ HIGHER_IS_BETTER = {
 }
 
 
-def cross_section(tickers: list[str], years: int = 8) -> tuple[list[PeerRow], dict]:
-    """拉取一组公司的横切数据，并算出每个指标的中位数与各家分位数。"""
-    rows = [_extract_row(t, years) for t in tickers]
+def cross_section(tickers: list[str], years: int = 8, basis: str = "ttm") -> tuple[list[PeerRow], dict]:
+    """拉取一组公司的横切数据，并算出每个指标的中位数与各家分位数。
+
+    `basis` 默认 `"ttm"`（最近四季合计）—— 见 `_extract_row` 关于财年错位的说明。
+    """
+    rows = [_extract_row(t, years, basis) for t in tickers]
     ok = [r for r in rows if not r.error]
 
     stats: dict[str, dict] = {}

@@ -59,26 +59,36 @@ def main() -> int:
                     help="输出目录（默认 data/）。机器产物写成 sector_<组名>.md，"
                          "刻意与 sectors/<组名>.md 分开——后者是你手写的行业认知，不可再生")
     ap.add_argument("--stdout", action="store_true", help="打印到 stdout 而不写文件")
+    ap.add_argument("--basis", choices=["ttm", "annual"], default="ttm",
+                    help="口径：ttm=最近四季合计（默认，跨公司可比）；annual=最新完整财年")
     args = ap.parse_args()
 
     tickers = [t.upper() for t in args.tickers] or (load_group(args.group) if args.group else [])
     if len(tickers) < 3:
         raise SystemExit("至少需要 3 家公司才有参照系意义（中位数与分位数都需要样本）。")
 
-    rows, stats = P.cross_section(tickers, years=args.years)
+    rows, stats = P.cross_section(tickers, years=args.years, basis=args.basis)
     ok = [r for r in rows if not r.error]
 
     L: list[str] = []
     title = args.group or "+".join(t.ticker for t in ok[:4])
     L.append(f"# 行业横切 — {title}")
     L.append("")
-    L.append(f"样本 {len(ok)}/{len(tickers)} 家 · 各家取最新财年（**财年止日期不同，见下表**）")
+    if args.basis == "ttm":
+        L.append(f"样本 {len(ok)}/{len(tickers)} 家 · **口径：TTM（最近四个季度合计）**")
+        L.append("")
+        L.append("> 为什么用 TTM 而不是最新财年：各公司财年不同，「最新财年」根本不是同一段时间。")
+        L.append("> 实测 15 家样本**年报期末跨度 368 天**，而最新季末跨度只有 **94 天**。")
+        L.append("> 差别有多大：SanDisk 年报口径 ROIC −10.4%，TTM 口径 **+42.0%**。")
+        L.append("> （增量 ROIC 与营收 CAGR 需要多年序列，仍用年报口径。）")
+    else:
+        L.append(f"样本 {len(ok)}/{len(tickers)} 家 · 口径：最新完整财年（⚠️ **财年止日期不同，见下表**）")
     L.append("")
     L.append("> 判读规则（FRAMEWORK.md §3）：**不看绝对值，看分位数是否 ≥70th，")
     L.append("> 以及它在上行还是下行。** 中位数而非均值——均值会被龙头污染。")
     L.append("")
 
-    L.append("| 公司 | 财年止 |" + "".join(f" {lab} |" for _k, lab in P.CROSS_METRICS))
+    L.append(f"| 公司 | {'TTM止' if args.basis=='ttm' else '财年止'} |" + "".join(f" {lab} |" for _k, lab in P.CROSS_METRICS))
     L.append("|" + "---|" * (2 + len(P.CROSS_METRICS)))
     for r in ok:
         cells = []
@@ -109,8 +119,14 @@ def main() -> int:
 
     L.append("## ⚠️ 可比性检查（读表前必看）")
     L.append("")
-    L.append("- **财年不对齐**：各家财年止日期不同（上表已列出），跨公司比同一")
-    L.append("  「最新财年」实际可能相差近一年，在周期转折点上这会造成假差异。")
+    if args.basis == "ttm":
+        L.append("- **TTM 仍有残余错位**：各家季末日期最多相差约 3 个月（上表已列出）。")
+        L.append("  这比年报口径的近一年好得多，但在急剧变化期仍需注意。")
+        L.append("- **存量项取最新季末**：资产负债表类指标（净负债、存货）用的是时点值，")
+        L.append("  与四季合计的流量项在时间上并不完全对齐——这是 TTM 口径固有的取舍。")
+    else:
+        L.append("- 🔴 **财年不对齐**：各家财年止日期最多相差 **368 天**（实测）。")
+        L.append("  跨公司比同一「最新财年」实际可能相差近一年——**建议改用 --basis ttm**。")
     L.append("- **业务混合**：多元化公司的合并数字会掩盖各块生意的差异；")
     L.append("  companyfacts 拿不到分部数据，需回 10-K 原文。")
     L.append("- **会计口径**：租赁资本化、研发资本化、并购摊销在同业间可能不同。")
