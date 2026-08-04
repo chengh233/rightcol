@@ -125,6 +125,10 @@ def _quarterly_section(ps: list[Period], qs: list[Period], pending: dict | None 
     return "\n".join(L)
 
 
+def _ttm_label(t: Period) -> str:
+    return f"**TTM** 止 {t.end}"
+
+
 def data_pack(
     ticker: str,
     name: str,
@@ -152,6 +156,11 @@ def data_pack(
     A("> 本文件只有数字，没有判断。判断请对照 `FRAMEWORK.md` 的三个闸门自行做出。")
     A("> 缺失一律显示 `—`，**绝不以 0 填充**——数据中断必须长得像数据中断。")
     A("")
+
+    # TTM 期：与年度 Period 同构，可直接喂给所有指标函数。
+    # 每张年度表底部都会加一行，让「十年历史」与「当下水平」并排看。
+    tt = M.ttm_period(quarters) if quarters else None
+    tt4 = M.ttm_period(quarters, offset=4) if quarters else None
 
     if quarters:
         A(_quarterly_section(ps, quarters, pending))
@@ -210,6 +219,12 @@ def data_pack(
                 ]
             )
         )
+    if tt is not None:
+        mg = M.margins(tt)
+        r = M.roic(tt, tt4)
+        yoy = M._div(M._sub(tt.revenue, tt4.revenue), tt4.revenue) if tt4 else None
+        A(_row([_ttm_label(tt), _num(tt.revenue), _pct(yoy), _pct(mg["gross"]), _pct(mg["operating"]),
+                _pct(mg["net"]), _pct(r), _pct(M.dupont(tt, tt4)["roe"]), "—"]))
     A("")
     if notes:
         legend = {
@@ -256,6 +271,10 @@ def data_pack(
     for i, p in enumerate(ps):
         d = M.dupont(p, M.prev_of(ps, i))
         A(_row([p.end, _pct(d["net_margin"]), _x(d["asset_turnover"]), _x(d["equity_multiplier"]), _pct(d["roe"])]))
+    if tt is not None:
+        d = M.dupont(tt, tt4)
+        A(_row([_ttm_label(tt), _pct(d["net_margin"]), _x(d["asset_turnover"]),
+                _x(d["equity_multiplier"]), _pct(d["roe"])]))
     A("")
     A("**怎么读**：同一个 ROE 背后可以是三种完全不同的生意——")
     A("高净利率低周转＝品牌/专利型；低净利率高周转＝效率型；靠权益乘数堆出来的＝杠杆型。")
@@ -283,6 +302,10 @@ def data_pack(
                 ]
             )
         )
+    if tt is not None:
+        A(_row([_ttm_label(tt), _num(tt.net_income), _num(tt.ocf), _x(M._div(tt.ocf, tt.net_income)),
+                _num(M.capex(tt)), _num(M.fcf(tt)), _num(M.fcf_ex_sbc(tt)),
+                _pct(M.accrual_ratio(tt, tt4))]))
     A("")
     A("**怎么读**：利润是观点，现金是事实。但 **OCF/净利润 不是可靠的单一警报**——")
     A("股权激励与折旧都要加回经营现金流，会把科技公司和重资产公司的这个比值")
@@ -301,6 +324,9 @@ def data_pack(
     for i, p in enumerate(ps):
         c = M.cash_conversion(p, M.prev_of(ps, i))
         A(_row([p.end, _days(c["dso"]), _days(c["dio"]), _days(c["dpo"]), _days(c["ccc"])]))
+    if tt is not None:
+        c = M.cash_conversion(tt, tt4)
+        A(_row([_ttm_label(tt), _days(c["dso"]), _days(c["dio"]), _days(c["dpo"]), _days(c["ccc"])]))
     A("")
     A("**怎么读**：CCC 为负＝**先收钱后付货款**，等于免费占用上下游资金做生意，")
     A("是产业链话语权极强的证据。DSO / DIO 增速持续快于营收增速，是渠道压货或需求转弱的**早期**信号——")
@@ -329,6 +355,11 @@ def data_pack(
                 ]
             )
         )
+    if tt is not None:
+        mg = M.margins(tt)
+        A(_row([_ttm_label(tt), _num(tt.sbc), _pct(mg["sbc_of_gross_profit"]), _num(tt.buybacks),
+                _x(M.buyback_quality(tt)), _num(tt.shares_diluted, scale=1e-6, suffix="M", digits=0),
+                _pct(M.dilution(tt, tt4)), _num(tt.dividends_paid), _x(mg["capex_over_da"])]))
     A("")
     A("**怎么读**：**摊薄股数与净稀释率是股权激励伤害股东最直接、最难粉饰的证据** ——")
     A("净稀释率为正说明股东在被稀释，为负说明回购真正减少了股本。")
@@ -365,6 +396,11 @@ def data_pack(
                 ]
             )
         )
+    if tt is not None:
+        d0, c0 = M.total_debt(tt), M.excess_cash(tt)
+        n0 = M._sub(d0, c0)
+        A(_row([_ttm_label(tt), _num(tt.assets), _num(tt.equity), _num(d0), _num(c0), _num(n0),
+                _x(M._div(n0, M.fcf(tt))), _pct(M._div(tt.goodwill, tt.equity))]))
     A("")
     A("**怎么读**：净负债/FCF 是「不吃不喝几年能还清」。>4× 就要认真看到期结构。")
     A("商誉/权益高，意味着账面净资产里很大一块是过去并购付出的溢价——**它只会减值，不会增值**。")

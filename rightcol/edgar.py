@@ -489,8 +489,13 @@ def quarterly_series(
     kind: str = "flow",
     taxonomy: str = "us-gaap",
     strict_priority: bool = False,
+    derive: bool = True,
 ) -> dict[str, Fact]:
     """取出**单季度**序列，key 为季末日期。
+
+    `derive=False` 时**完全不做任何还原**（不做 YTD 差分），只用直接申报的单季值 ——
+    用于**期间平均值**类概念（加权平均股数）：它们在数学上不能相加也不能相减，
+    任何差分都会产出垃圾（实测苹果被差分出 −0.05B 股）。
 
     为什么必须单独实现、不能复用年度那套：
 
@@ -512,7 +517,7 @@ def quarterly_series(
         facts, tags, kind=kind, taxonomy=taxonomy, strict_priority=strict_priority,
         forms=QUARTERLY_FORMS, day_range=(QUARTER_MIN_DAYS, QUARTER_MAX_DAYS),
     )
-    if kind == "flow":
+    if kind == "flow" and derive:
         # ⚠️ **必须无条件做 YTD 差分来补缺口**，不能只在"季度数不足"时才做。
         #
         # 因为**现金流量表在 10-Q 里永远是年初至今累计的**（实测 Micron：
@@ -587,7 +592,7 @@ def _from_ytd(
     return out
 
 
-def derive_q4(quarters: dict[str, Fact], annuals: dict[str, Fact]) -> dict[str, Fact]:
+def derive_q4(quarters: dict[str, Fact], annuals: dict[str, Fact], skip: bool = False) -> dict[str, Fact]:
     """用「全年 − 前三季」倒推财年最后一季，补进季度序列。
 
     **这一步不做，任何 TTM 都是错的** —— 因为最近四个季度里必然有一个 Q4，
@@ -598,6 +603,8 @@ def derive_q4(quarters: dict[str, Fact], annuals: dict[str, Fact]) -> dict[str, 
     """
     from datetime import date
 
+    if skip:
+        return dict(quarters)
     out = dict(quarters)
     for fy_end, a in annuals.items():
         if fy_end in out or a.start is None:

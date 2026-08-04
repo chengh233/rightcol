@@ -153,8 +153,11 @@ def build_quarters(facts: dict, n: int = 12) -> list[Period]:
     series: dict[str, dict] = {}
     for name, (kind, tags) in C.CONCEPTS.items():
         strict = name in C.STRICT_PRIORITY
-        q = quarterly_series(facts, tags, kind=kind, strict_priority=strict)
-        if kind == C.FLOW:
+        is_avg = name in C.PERIOD_AVERAGE
+        # 期间平均值（加权平均股数）**不能做任何还原** —— 相加相减都是数学错误。
+        # 实测苹果被 YTD 差分出「−0.05B 股」，再四季相加得到 44.20B（实际约 14.7B）。
+        q = quarterly_series(facts, tags, kind=kind, strict_priority=strict, derive=not is_avg)
+        if kind == C.FLOW and not is_avg:
             a = annual_series(facts, tags, kind=kind, strict_priority=strict)
             q = derive_q4(q, a)
         series[name] = q
@@ -226,7 +229,15 @@ def ttm_period(qs: list[Period], offset: int = 0) -> Period | None:
     last = win[-1]
     out = Period(end=last.end, fy=last.fy)
     for name, (kind, _tags) in C.CONCEPTS.items():
-        if kind == C.FLOW:
+        if name in C.PERIOD_AVERAGE:
+            # 加权平均股数这类**期间平均值**：既不能相加也不能相减。
+            # 而且我们要的本来就是「当前股本」，所以取最近一个有值的季度。
+            for q in reversed(win):
+                if q.raw.get(name) is not None:
+                    out.raw[name] = q.raw[name]
+                    out.tags_used[name] = q.tags_used.get(name, "") + f"(取{q.end}单季)"
+                    break
+        elif kind == C.FLOW:
             vals = [q.raw.get(name) for q in win]
             if all(v is not None for v in vals):
                 out.raw[name] = sum(vals)
