@@ -623,6 +623,83 @@ def derive_q4(quarters: dict[str, Fact], annuals: dict[str, Fact]) -> dict[str, 
 # --------------------------------------------------------------------------
 
 
+def earnings_releases(ticker: str, limit: int = 4) -> list[dict]:
+    """找出最近的**业绩发布**（8-K 的 Item 2.02），并返回新闻稿附件的 URL。
+
+    **为什么必须单独做这个**：业绩发布走 8-K，比 10-Q/10-K **早几天到两周**。
+    而 XBRL 的 companyfacts 只聚合定期报告，所以在这个窗口里，
+    本项目的全部数字都还停留在上一期 —— 财报季里这是实打实的盲区。
+
+    实测（2026-08-04）：AMD 当天申报了 8-K（Item 2.02, 7.01, 9.01），
+    Q2 营收 115.36 亿、环比 +13%；而 10-Q 尚未提交，
+    companyfacts 里最新仍是 2026-03-28 那一季。
+
+    ⚠️ 8-K 的新闻稿是**非结构化 HTML**，本函数只负责**定位**，不做解析 ——
+    数字要由 LLM 精读层从原文读，且必须注明"来自业绩发布，未经 10-Q 审阅"。
+    """
+    cik = cik_for(ticker)
+    sub = _get_json(f"https://data.sec.gov/submissions/CIK{cik}.json", cache_key=f"sub_{cik}", ttl=3600)
+    r = sub["filings"]["recent"]
+    items_col = r.get("items") or [""] * len(r["form"])
+    out: list[dict] = []
+    for i, ft in enumerate(r["form"]):
+        if ft != "8-K" or "2.02" not in (items_col[i] or ""):
+            continue
+        accn = r["accessionNumber"][i].replace("-", "")
+        base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accn}"
+        out.append(
+            {
+                "filed": r["filingDate"][i],
+                "items": items_col[i],
+                "index": f"{base}/",
+                "primary": f"{base}/{r['primaryDocument'][i]}",
+                "exhibit": _find_press_release(base),
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _find_press_release(base_url: str) -> str | None:
+    """从 8-K 的申报目录里找出新闻稿附件（Ex-99.1）。"""
+    import re
+
+    _throttle()
+    try:
+        resp = requests.get(base_url + "/", headers={"User-Agent": DEFAULT_UA}, timeout=30)
+        resp.raise_for_status()
+    except Exception:
+        return None
+    hrefs = re.findall(r'href="([^"]+\.htm)"', resp.text)
+    # 优先带 99 / ex 字样的附件；排除申报主文档与索引页
+    for h in hrefs:
+        name = h.rsplit("/", 1)[-1].lower()
+        if "index" in name:
+            continue
+        if "99" in name or name.startswith("ex"):
+            return h if h.startswith("http") else f"https://www.sec.gov{h}"
+    return None
+
+
+def stale_vs_earnings(ticker: str, latest_period_end: str) -> dict | None:
+    """检测「已有业绩发布、但定期报告还没到」这个盲区窗口。
+
+    返回 None 表示没有更新的业绩发布；否则返回那份 8-K 的信息。
+    `latest_period_end` 传本项目当前能取到的最新季末。
+    """
+    from datetime import date
+
+    rels = earnings_releases(ticker, limit=2)
+    if not rels:
+        return None
+    newest = rels[0]
+    # 业绩发布的申报日晚于最新季末 45 天以上 → 大概率是更新一期的业绩
+    if (date.fromisoformat(newest["filed"]) - date.fromisoformat(latest_period_end)).days > 45:
+        return newest
+    return None
+
+
 def filings(ticker: str, form: str = "10-K", limit: int = 5) -> list[dict]:
     """列出最近的申报，返回可直接打开的主文档 URL。
 

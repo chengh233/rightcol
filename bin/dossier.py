@@ -44,7 +44,14 @@ def main() -> int:
         return 1
 
     quarters = None if args.no_quarters else M.build_quarters(facts, n=12)
-    text = R.data_pack(ticker, E.company_name(ticker), periods, quarters)
+    # 检测「业绩发布已出、定期报告未到」的盲区窗口（财报季常见）
+    pending = None
+    if quarters:
+        try:
+            pending = E.stale_vs_earnings(ticker, quarters[-1].end)
+        except Exception:
+            pending = None
+    text = R.data_pack(ticker, E.company_name(ticker), periods, quarters, pending)
 
     if args.filings:
         try:

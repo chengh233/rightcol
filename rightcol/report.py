@@ -33,7 +33,7 @@ def _row(cells: list[str]) -> str:
     return "| " + " | ".join(cells) + " |"
 
 
-def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
+def _quarterly_section(ps: list[Period], qs: list[Period], pending: dict | None = None) -> str:
     """季度视图 + TTM。放在最前面，因为**「数据有多旧」是你该知道的第一件事**。"""
     L: list[str] = []
     A = L.append
@@ -41,6 +41,18 @@ def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
 
     A("## ⏱ 最新四个季度 · TTM")
     A("")
+    if pending:
+        A(f"> 🚨 **有一份更新的业绩发布尚未进入本数据包**")
+        A(f"> ")
+        A(f"> 该公司已于 **{pending['filed']}** 申报 8-K（Item {pending['items']}）——")
+        A(f"> 业绩发布走 8-K，比 10-Q/10-K **早几天到两周**，而 XBRL 只聚合定期报告。")
+        A(f"> **下面所有数字都还停留在上一期。**")
+        A(f"> ")
+        A(f"> 新闻稿原文：{pending.get('exhibit') or pending['primary']}")
+        A(f"> ")
+        A(f"> ⚠️ 业绩发布的数字**未经 10-Q 审阅**，且缺少 MD&A（量价拆解）、")
+        A(f"> 附注与风险因素 —— 拿它做判断时必须注明来源。")
+        A("")
     if stale is not None and stale >= 180:
         A(f"> 🔴 **年报视图已过期 {stale} 天**（最新财年止 {ps[-1].end}，最新季末 {qs[-1].end}）。")
         A("> **对周期股这是致命的** —— 下面所有年度表格反映的可能是完全不同的经营状态，")
@@ -113,8 +125,18 @@ def _quarterly_section(ps: list[Period], qs: list[Period]) -> str:
     return "\n".join(L)
 
 
-def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Period] | None = None) -> str:
-    """生成一家公司的确定性数据包。`quarters` 给了就额外输出季度视图与 TTM。"""
+def data_pack(
+    ticker: str,
+    name: str,
+    periods: list[Period],
+    quarters: list[Period] | None = None,
+    pending: dict | None = None,
+) -> str:
+    """生成一家公司的确定性数据包。
+
+    `quarters` 给了就额外输出季度视图与 TTM；
+    `pending` 是「已发业绩但定期报告未到」的 8-K 信息（见 edgar.stale_vs_earnings）。
+    """
     if not periods:
         return f"# {ticker}\n\n⚠️ 无可用年度数据。"
 
@@ -132,7 +154,7 @@ def data_pack(ticker: str, name: str, periods: list[Period], quarters: list[Peri
     A("")
 
     if quarters:
-        A(_quarterly_section(ps, quarters))
+        A(_quarterly_section(ps, quarters, pending))
 
     # ---------------- 闸门一：这是不是一门好生意 ----------------
     A("## 一、赚不赚钱 · 盈利能力与资本回报")
