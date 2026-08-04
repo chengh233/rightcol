@@ -646,6 +646,193 @@ ROIC = $7.87B ÷ $21.63B = 36.4%
 > 在 300% 和 900% 之间摆动。到这个区间该改看**自由现金流的绝对额与
 > 增长的持续性**，而不是继续比 ROIC 谁大。
 
+### 为什么有这么多指标 —— 它们分别在回答什么
+
+衡量"公司好不好"的指标有几十个。**它们不是重复，是在回答不同的问题。**
+按问题分类，一次就理清：
+
+| 问的问题 | 指标 | 一句话 |
+|---|---|---|
+| **生意本身好不好** | **ROIC** | 每占用 1 块钱资本，税后赚多少 —— **本框架的锚** |
+| 同上，但要跨税制比 | **ROCE** | 用税前的 EBIT，剔除税这个"公司管不了的变量" |
+| **新投的钱还值不值** | **增量 ROIC (ROIIC)** | 存量是老本，增量才是未来 |
+| **赚的是不是真现金** | **CROIC** | 把分子从 NOPAT 换成自由现金流，给 ROIC 做测谎 |
+| **跨年代、跨通胀可比吗** | **CFROI** | 把公司当一个项目算内部收益率，通胀调整 |
+| **剥掉并购溢价还剩多少** | **Greenblatt 的 RoC** | 分母只留"真正干活的有形资产" |
+| **创造了多少钱（不是多少%）** | **EVA** | = (ROIC − 资本成本) × 投入资本，单位是**美元** |
+| 股东视角的回报 | ROE | ⚠️ **能靠杠杆做高** |
+| 资产效率 | ROA / ROTA | ⚠️ 分母含闲置现金与无息负债，被稀释 |
+
+#### 几个最值得知道的差别
+
+**ROCE（Return on Capital Employed，已动用资本回报率）**
+```
+ROCE = EBIT ÷ (总资产 − 流动负债)
+```
+英式口径。**分子是税前的**，目的是比较处在不同税制下的同行。
+⚠️ **别拿 ROCE 直接和资本成本比大小** —— 资本成本是税后口径，量纲不同，
+那样比会得出"人人都在创造价值"的错觉。要比先乘 (1 − 税率)。
+
+**Greenblatt 的 Return on Capital**（《股市稳赚》"神奇公式"两因子之一）
+```
+Return on Capital = EBIT ÷ (净营运资本 + 净固定资产)
+```
+分母**刻意排除商誉和超额现金**。他的理由：商誉是**过去某次收购付的价格**，
+不是"今天再开一家同样的店需要多少钱"。
+
+> 这带来一个有用的对照：**ROIC 问"资本配置者（含并购）干得怎么样"，
+> Greenblatt 的 RoC 问"生意模型本身有多好"。** 两者差得越大，说明这家公司的
+> 价值越依赖"买"而不是"经营"。
+> ⚠️ 但对以连续并购为核心模式的公司（很多软件、医疗器械集团），
+> 排除商誉等于假装收购成本不存在 —— **两个都要看**。
+
+**EVA（Economic Value Added，经济增加值）**
+```
+EVA = NOPAT − (资本成本 × 投入资本)  ≡  (ROIC − 资本成本) × 投入资本
+```
+**它和 ROIC 的信息量完全相同，只是把百分比换成了美元。**
+
+为什么需要这个转换？**因为比率会误导资本配置决策**：
+
+> 一家 ROIC 50% 但只能投 1 亿的公司（EVA = 4100 万），
+> **远不如**一家 ROIC 20% 却能投 100 亿的公司（EVA = 11 亿）。
+
+管理层为了保住漂亮的 ROIC 而拒绝"回报率低于当前 ROIC、但高于资本成本"的项目，
+是典型的**比率陷阱** —— 那些项目每一个都在创造价值。
+
+---
+
+### 巴菲特到底用什么指标 —— 全部核实过原文
+
+**最常被引用的那句，括号里的限定几乎总被中文转述删掉：**
+
+> 「The primary test of managerial economic performance is the achievement of a
+> high earnings rate on equity capital employed **(without undue leverage,
+> accounting gimmickry, etc.)** and not the achievement of consistent gains in
+> earnings per share.」—— **1979 年致股东信**
+
+- **without undue leverage**（不靠过度杠杆）→ 这就是为什么 ROE 不够、要用 ROIC
+- **accounting gimmickry**（不靠会计花招）→ 这就是为什么要看盈利质量（应计比率等）
+- 同时**明确否定 EPS**（每股收益）
+
+**他给出的最明确的一次答案，用的不是 ROE：**
+
+> 「What a business can be expected to earn on **unleveraged net tangible assets**,
+> **excluding any charges against earnings for amortization of Goodwill**,
+> is **the best guide** to the economic attractiveness of the operation.」
+> —— **1983 年致股东信附录**
+
+两个限定词都关键：**unleveraged**（假设零负债，剥离杠杆的美化）、
+**excluding amortization of Goodwill**（剔除商誉摊销 —— 商誉是买家付的价格，
+不是生意本身的资本需求）。
+
+> 「the best guide」这个措辞在他所有信里是独一份。
+> 而且这不是一次性用语 —— **1983 / 2011 / 2014 三封信一字不差地用同一措辞**。
+
+**他自己给的分档尺子**（2011、2014 年信）：
+
+| 税后 return on unleveraged net tangible assets | 评价 |
+|---|---|
+| **25% 以上** | terrific（极好）|
+| **12% ~ 20%** | good（不错）|
+
+**See's Candies —— 他亲手演示的计算**
+
+| | 1972 年买入时 |
+|---|---|
+| 买价 | $2,500 万 |
+| **净有形资产** | **$800 万** |
+| 税后利润 | $200 万 |
+| → **税后回报** | **25%** |
+| → 税前回报（2007 年信的口径） | **60%** |
+
+⚠️ **同一门生意、同一年，25% 和 60% 只是税后与税前之别**（当时公司税率约 48%）。
+中文二手文章常把两个数并列，制造出"回报率翻倍"的假象。
+
+> **通用纪律：任何回报率指标，先问税前还是税后。**
+
+**2007 年信的三分法 —— 最好的入门比喻**
+
+他把公司比作三种储蓄账户：
+
+| | 特征 | 对应指标 | 例子 |
+|---|---|---|---|
+| **伟大 great** | 利率极高，且**随时间上升** | 高 ROIC 且在改善 | See's |
+| **良好 good** | 利率有吸引力，**追加的存款也能拿到这个利率** | ROIC 不错，ROIIC ≈ ROIC | FlightSafety（增量税前回报 ~31%）|
+| **糟糕 gruesome** | 利率低，**还逼你不断追加存款** | 低 ROIC + 高资本需求 | 航空业 |
+
+> 「The worst sort of business is one that **grows rapidly, requires significant
+> capital to engender the growth, and then earns little or no money.
+> Think airlines.**」
+
+**最反直觉、也最重要的一句：**
+
+> 「Truly great businesses, earning huge returns on tangible assets,
+> **can't for any extended period reinvest a large portion of their earnings
+> internally at high rates of return**.」—— 2007 年信
+
+**最好的生意，恰恰是"你想多投钱都投不进去"的生意。** 喜诗 35 年只再吃下 3200 万美元。
+
+→ **实操含义：看到高 ROIC 公司仍在大额留存收益，必须追问增量 ROIC**，
+不要默认"高 ROIC 会自动复利"。
+
+**护城河的定义 —— 它是手段，不是目的：**
+
+> 「A truly great business must have an enduring "moat" that **protects excellent
+> returns on invested capital**. The dynamics of capitalism guarantee that
+> competitors will repeatedly assault any business "castle" that is earning
+> high returns.」—— 2007 年信
+
+**高 ROIC 本身不是好消息，可持续的高 ROIC 才是** —— 所以必须看 **5~10 年序列**，
+一年的高 ROIC 说明不了任何事。
+
+**他明确反对的指标：EBITDA**（息税折旧摊销前利润），前后跨了 28 年：
+
+| 年份 | 原话 |
+|---|---|
+| **1986** | 批判 (a)+(b) 不减 (c)：「These imply that the business being offered is the commercial counterpart of the **Pyramids** — forever state-of-the-art, never needing to be replaced」 |
+| **2000** | 「References to EBITDA make us shudder — does management think **the tooth fairy** pays for capital expenditures?」 |
+| **2001** | 「**Bad terminology is the enemy of good thinking.**」 |
+| **2002** | 「depreciation is a particularly **unattractive** expense because the cash outlay it represents is paid up front」；「There is seldom just one cockroach in the kitchen.」 |
+| **2014** | 「When CEOs tout EBITDA as a valuation guide, **wire them up for a polygraph test**.」 |
+
+> ⚠️ **但有个常被误读的细节**：2014 年同一页他说，伯克希尔 11.5 亿美元的
+> **收购形成的无形资产摊销**里「We would call about 20% of these 'real,' the rest not」，
+> 并建议投资者**把大部分加回**。
+> **所以他反对的是把「折旧」当非成本，不是反对所有非现金调整** ——
+> 折旧要减，收购摊销大部分要加回。
+
+---
+
+### 芒格：为什么长期看，ROIC 决定一切
+
+> 「Over the long term, it's hard for a stock to earn a much better return than
+> the business which underlies it earns. **If the business earns 6% on capital
+> over 40 years and you hold it for that 40 years, you're not going to make much
+> different than a 6% return—even if you originally buy it at a huge discount.**」
+> —— 芒格，1994 年南加州大学商学院演讲
+> （首刊于 *Outstanding Investor Digest* 1995-05-05）
+
+**这是整个框架以 ROIC 为核心的理论支点：**
+
+```
+买入价格  →  一次性的折让  →  被持有期摊薄
+资本回报  →  每年复利      →  越持有越占主导
+```
+
+**持有期越长，ROIC 的权重越大，买入价的权重越小。**
+
+巴菲特 1989 年信里那句是同一道理的另一种说法：
+
+> 「**Time is the friend of the wonderful business, the enemy of the mediocre.**」
+> 前一句给出了原因：「any initial advantage you secure will be quickly eroded by
+> the **low return that the business earns**.」
+
+> 📌 **这也解释了本框架的闸门顺序**：闸门 1（好生意）在闸门 2（好价格）之前，
+> 因为**长期看前者的权重远大于后者**。
+
+---
+
 ### 资本成本 r 怎么取 —— 这条分界线你得自己画
 
 r 是这个框架的枢纽变量：象限的横轴、合理 PE、逆向 DCF 全都依赖它。
